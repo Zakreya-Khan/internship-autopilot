@@ -48,7 +48,8 @@ export function applyHardFilters(posting: Posting, profile: Profile): FilterResu
   if (!prefs.role_families.includes(posting.roleFamily)) {
     reasons.push(`role family ${posting.roleFamily} not selected`);
   }
-  if (!matchesLocation(posting, profile)) reasons.push("location not in your list");
+  if (prefs.strict_locations && !matchesLocation(posting, profile))
+    reasons.push("location not in your list");
 
   const needsSponsorship = auth.needs_sponsorship_now || auth.needs_sponsorship_later;
   if (posting.sponsorship === "citizenship_required" && !auth.us_citizen) {

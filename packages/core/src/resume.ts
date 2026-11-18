@@ -65,8 +65,16 @@ function fmtYm(ym: string): string {
   return `${names.at(Number(m) - 1) ?? ""} ${y}`.trim();
 }
 
-/** The base resume: every fact, in profile order. Variants are measured against this. */
-export function buildBaseResume(profile: Profile, opts: { includeGpa?: boolean } = {}): ResumeDoc {
+/**
+ * The base resume: every fact of every entry marked on_base_resume, in profile order.
+ * Variants are measured against this. `all` includes the off-resume entries too (the pool
+ * tailoring chooses from).
+ */
+export function buildBaseResume(
+  profile: Profile,
+  opts: { includeGpa?: boolean; all?: boolean } = {},
+): ResumeDoc {
+  const keep = (e: { on_base_resume: boolean }) => opts.all === true || e.on_base_resume;
   const links = Object.values(profile.identity.links).filter((l): l is string => Boolean(l));
   return {
     header: {
@@ -84,14 +92,14 @@ export function buildBaseResume(profile: Profile, opts: { includeGpa?: boolean }
       gpa: opts.includeGpa !== false && e.gpa != null ? String(e.gpa) : null,
       courses: e.courses,
     })),
-    experience: profile.experience.map((x) => ({
+    experience: profile.experience.filter(keep).map((x) => ({
       id: x.id,
       heading: x.title,
       subheading: x.org,
       dates: `${fmtYm(x.start)} – ${fmtYm(x.end)}`,
       bullets: x.facts.map((f) => ({ text: f.text, factIds: [f.id] })),
     })),
-    projects: profile.projects.map((p) => ({
+    projects: profile.projects.filter(keep).map((p) => ({
       id: p.id,
       heading: p.name,
       subheading: "",
@@ -116,7 +124,7 @@ export function applyResumePlan(
   profile: Profile,
   plan: ResumePlan,
 ): { doc: ResumeDoc; problems: PlanProblem[] } {
-  const base = buildBaseResume(profile);
+  const base = buildBaseResume(profile, { all: true });
   const problems: PlanProblem[] = [];
   const facts = indexFacts(profile);
   const entryFacts = new Map<string, Set<string>>();
@@ -275,6 +283,22 @@ export function diffResume(base: ResumeDoc, variant: ResumeDoc): ResumeDiff {
         });
       }
     });
+  }
+  // Entries the variant uses that aren't on the base resume (pulled in for this posting).
+  const baseIds = new Set(baseEntries.map((e) => e.id));
+  for (const ve of [...variant.experience, ...variant.projects]) {
+    if (baseIds.has(ve.id)) continue;
+    for (const v of ve.bullets) {
+      bullets.push({
+        status: "added",
+        entryId: ve.id,
+        factIds: v.factIds,
+        base: null,
+        variant: v.text,
+        words: null,
+        moved: 0,
+      });
+    }
   }
   const skillsMoved = variant.skills
     .map((s, to) => ({ skill: s, from: base.skills.indexOf(s), to }))

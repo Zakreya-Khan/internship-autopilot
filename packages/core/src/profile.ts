@@ -16,6 +16,8 @@ export const FactSchema = z.object({
 const EntrySchema = z.object({
   id: factId,
   facts: z.array(FactSchema).default([]),
+  /** false: kept off your default resume, but tailoring may still pick it for a posting. */
+  on_base_resume: z.boolean().default(true),
 });
 
 export const ExperienceSchema = EntrySchema.extend({
@@ -109,6 +111,8 @@ export const ProfileSchema = z.object({
       role_families: z.array(RoleFamily).default(["swe"]),
       /** Ranked. Matched case-insensitively as substrings of a posting's locations. */
       locations: z.array(z.string()).default([]),
+      /** false: locations only rank postings; nothing is dropped for being elsewhere. */
+      strict_locations: z.boolean().default(true),
       allow_remote: z.boolean().default(true),
       include_coops: z.boolean().default(false),
       degree_level: z.enum(["associates", "bachelors", "masters", "phd"]).default("bachelors"),
@@ -123,6 +127,7 @@ export const ProfileSchema = z.object({
       terms: ["Summer 2027"],
       role_families: ["swe"],
       locations: [],
+      strict_locations: true,
       allow_remote: true,
       include_coops: false,
       degree_level: "bachelors",

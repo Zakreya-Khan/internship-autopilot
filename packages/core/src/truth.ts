@@ -170,9 +170,12 @@ export function checkClaims(profile: Profile, claims: ClaimToCheck[]): TruthIssu
       ...cited.flatMap((f) => [f.text, f.verifiedMetric ?? ""]),
       c.context ?? "",
       gradYear,
-    ].join(" ");
+    ]
+      .join(" ")
+      // "12,500+" in a fact must match "12500" from the draft: compare without thousands separators.
+      .replace(/(\d),(?=\d{3}\b)/g, "$1");
     for (const n of numbersIn(c.text)) {
-      const digits = n.replace(/[^\d.]/g, "");
+      const digits = n.replace(/[^\d.]/g, "").replace(/\.$/, "");
       if (digits && !allowedNumbers.includes(digits)) {
         issues.push({
           where: c.where,

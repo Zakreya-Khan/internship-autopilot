@@ -223,6 +223,18 @@ describe("hard filters", () => {
     expect(isUsRemote(loc)).toBe(ok);
   });
 
+  it("only ranks by location when strict_locations is off", () => {
+    const loose = testProfile((x) => ({
+      ...x,
+      preferences: { ...x.preferences, strict_locations: false },
+    }));
+    const austin = makePosting({ locations: ["Austin, TX"] });
+    expect(applyHardFilters(austin, loose).pass).toBe(true);
+    const now = new Date("2026-11-17T00:00:00Z");
+    expect(computeFitScore(austin, loose, undefined, now).components.location).toBe(0);
+    expect(computeFitScore(makePosting(), loose, undefined, now).components.location).toBe(10);
+  });
+
   it("keeps remote roles when remote is allowed", () => {
     expect(applyHardFilters(makePosting({ locations: ["Remote - US"] }), profile).pass).toBe(true);
   });

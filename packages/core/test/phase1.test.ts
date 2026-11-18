@@ -200,6 +200,36 @@ describe("truth checks", () => {
     ).toContain('number "90%" isn\'t in the cited facts');
   });
 
+  it("matches numbers written with thousands separators", () => {
+    const p = testProfile((x) => ({
+      ...x,
+      experience: [
+        ...x.experience,
+        {
+          id: "exp.shop",
+          org: "Example Garden Club",
+          title: "Volunteer",
+          start: "2025-03",
+          end: "present",
+          on_base_resume: true,
+          facts: [
+            {
+              id: "exp.shop.f1",
+              text: "Sorted 12,500+ seed packets",
+              tools: [],
+              verified_metric: "12,500+",
+            },
+          ],
+        },
+      ],
+    }));
+    const run = (text: string) =>
+      checkClaims(p, [{ where: "t", text, factIds: ["exp.shop.f1"], mustCite: true }]);
+    expect(run("Sorted 12,500+ seed packets for members.")).toEqual([]);
+    expect(run("Sorted 12500 seed packets")).toEqual([]);
+    expect(run("Sorted 42,500+ seed packets").map((i) => i.severity)).toContain("block");
+  });
+
   it("blocks technologies that aren't in the profile", () => {
     const issues = check("Built a Python pipeline on Kubernetes that cleaned sensor data", [
       "exp.lab.f1",
@@ -271,6 +301,43 @@ describe("resume plans and diffs", () => {
         '"quantum-computing" is not in your courses',
       ].sort(),
     );
+  });
+
+  it("keeps off-resume entries out of the base, but lets a plan pull them in", () => {
+    const p = testProfile((x) => ({
+      ...x,
+      projects: x.projects.map((e) => ({ ...e, on_base_resume: false })),
+    }));
+    const b = buildBaseResume(p);
+    expect(b.projects).toEqual([]);
+    const { doc, problems } = applyResumePlan(p, {
+      entries: [
+        {
+          entryId: "exp.lab",
+          bullets: [
+            {
+              text: "Built a Python pipeline that cleaned three years of sensor data",
+              factIds: ["exp.lab.f1"],
+            },
+          ],
+        },
+        {
+          entryId: "proj.app",
+          bullets: [
+            {
+              text: "Wrote a web app that builds conflict-free class schedules",
+              factIds: ["proj.app.f1"],
+            },
+          ],
+        },
+      ],
+      skillsOrder: [],
+      courses: [],
+    });
+    expect(problems).toEqual([]);
+    expect(doc.projects.map((e) => e.id)).toEqual(["proj.app"]);
+    const d = diffResume(b, doc);
+    expect(d.bullets.find((x) => x.entryId === "proj.app")).toMatchObject({ status: "added" });
   });
 
   it("diffs at the bullet level with word changes", () => {

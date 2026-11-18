@@ -82,6 +82,7 @@ preferences:
   terms: ["Summer 2027"]
   role_families: [swe, data_ml] # ranked: swe, data_ml, pm, quant, hardware, other
   locations: ["San Francisco", "Berkeley", "Seattle", "New York"] # ranked, substring match
+  strict_locations: true # false: locations only rank; nothing is dropped for being elsewhere
   allow_remote: true
   include_coops: false
   degree_level: bachelors # associates | bachelors | masters | phd
