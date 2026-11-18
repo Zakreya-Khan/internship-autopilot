@@ -2,7 +2,7 @@
 
 export function norm(s: string | null | undefined): string {
   return (s ?? "")
-    .replace(/\*/g, "")
+    .replace(/[*\u2731]/g, "") // "*" and Lever's heavy asterisk
     .replace(/\((required|optional)\)/gi, "")
     .replace(/\s+/g, " ")
     .trim()

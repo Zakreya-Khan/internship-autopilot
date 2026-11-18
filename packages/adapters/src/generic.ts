@@ -1,5 +1,5 @@
 // Phase 3: a best-effort adapter for career sites no other adapter knows.
-import { byLabel, byNameOrId, labelText, norm } from "./dom.ts";
+import { byLabel, byNameOrId, FIELD_CONTAINER, labelText, norm } from "./dom.ts";
 import { looksConfirmed } from "./engine.ts";
 import { isSubmitLike } from "./safe-click.ts";
 import type { Adapter } from "./types.ts";
@@ -34,22 +34,83 @@ function controlsIn(
   ].filter(
     (el) =>
       !(el instanceof HTMLInputElement && SKIP_TYPES.has(el.type)) &&
+      // react-select's hidden "required" proxy duplicates the real combobox beside it.
+      !(el.getAttribute("aria-hidden") === "true" && el.getAttribute("tabindex") === "-1") &&
       !el.closest("header, nav, footer, [role=search]"),
+  );
+}
+
+const esc = (v: string) => v.replace(/(["\\])/g, "\\$1");
+
+/** Text of the element(s) named by aria-labelledby. */
+function labelledBy(el: Element, doc: Document): string {
+  const ids = el.getAttribute("aria-labelledby");
+  if (!ids) return "";
+  return norm(
+    ids
+      .split(/\s+/)
+      .map((id) => doc.getElementById(id)?.textContent ?? "")
+      .join(" "),
+  );
+}
+
+/**
+ * The question a control belongs to, from the field container around it: Lever's
+ * `.application-label`, Ashby's question title, a legend, or a label that isn't an option's own.
+ * Only used when the container holds one question (one control, or one same-name group).
+ */
+function questionText(el: Element): string {
+  const box = el.closest(FIELD_CONTAINER);
+  if (!box) return "";
+  const controls = [...box.querySelectorAll("input:not([type=hidden]), textarea, select")];
+  const names = new Set(controls.map((c) => c.getAttribute("name") ?? c.id));
+  if (names.size > 1) return "";
+  const heading = box.querySelector(
+    ".application-label, [class*=question-title], [class*=questionTitle], legend, label:not(:has(input, select, textarea))",
+  );
+  return heading ? labelText(heading) : "";
+}
+
+/** A radio or checkbox group's question. Each input's own <label> is an option, never the question. */
+function groupLabel(el: HTMLInputElement, doc: Document): string {
+  const legend = el.closest("fieldset")?.querySelector("legend");
+  if (legend) return norm(legend.textContent);
+  const byName = el.name ? doc.querySelector(`label[for="${esc(el.name)}"]`) : null;
+  if (byName) return labelText(byName);
+  return (
+    norm(el.closest("[role=radiogroup], [role=group]")?.getAttribute("aria-label")) ||
+    labelledBy(el.closest("[aria-labelledby]") ?? el, doc) ||
+    questionText(el) ||
+    norm(el.name)
   );
 }
 
 function labelFor(el: Element, doc: Document): string {
   const id = el.getAttribute("id");
   if (id) {
-    const l = doc.querySelector(`label[for="${id.replace(/"/g, '\\"')}"]`);
+    const l = doc.querySelector(`label[for="${esc(id)}"]`);
     if (l) return labelText(l);
   }
-  const wrap = el.closest("label");
-  if (wrap) return labelText(wrap);
+  // Ashby's yes/no questions point their label at the field's name, not an id.
+  const name = el.getAttribute("name");
+  if (name) {
+    const l = doc.querySelector(`label[for="${esc(name)}"]`);
+    if (l) return labelText(l);
+  }
   const aria = el.getAttribute("aria-label");
   if (aria) return norm(aria);
+  const by = labelledBy(el, doc);
+  if (by) return by;
+  const isChoice =
+    el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio");
+  // A wrapping label is the question, except around a checkbox or radio, where it's the option.
+  const wrap = el.closest("label");
+  if (wrap && !isChoice) return labelText(wrap);
   const legend = el.closest("fieldset")?.querySelector("legend");
   if (legend) return norm(legend.textContent);
+  const q = questionText(el);
+  if (q) return q;
+  if (wrap) return labelText(wrap);
   return norm(el.getAttribute("placeholder") ?? el.getAttribute("name") ?? "");
 }
 
@@ -71,22 +132,29 @@ export function extractPageFields(doc: Document): PageFieldInfo[] {
   const seenGroups = new Set<string>();
   let n = 0;
   for (const el of controlsIn(root)) {
-    if (el instanceof HTMLInputElement && el.type === "radio") {
+    const groupOf = (type: "radio" | "checkbox") =>
+      el.name
+        ? [
+            ...root.querySelectorAll<HTMLInputElement>(
+              `input[type=${type}][name="${esc(el.name)}"]`,
+            ),
+          ]
+        : [];
+    const isGroup =
+      el instanceof HTMLInputElement &&
+      (el.type === "radio" || (el.type === "checkbox" && groupOf("checkbox").length > 1));
+    if (el instanceof HTMLInputElement && isGroup) {
       if (seenGroups.has(el.name)) continue;
       seenGroups.add(el.name);
-      const group = [
-        ...root.querySelectorAll<HTMLInputElement>(
-          `input[type=radio][name="${el.name.replace(/"/g, '\\"')}"]`,
-        ),
-      ];
+      const type = el.type === "radio" ? "radio" : "checkbox";
+      const group = groupOf(type);
       const key = `ia-${n++}`;
       group.forEach((g) => g.setAttribute("data-ia-key", key));
-      const legend = el.closest("fieldset")?.querySelector("legend");
       out.push({
         key,
-        label: legend ? norm(legend.textContent) : norm(el.name),
-        type: "radio",
-        required: el.required,
+        label: groupLabel(el, doc),
+        type: type === "radio" ? "radio" : "multi_select",
+        required: group.some((g) => g.required),
         options: group.map((g) => (g.labels?.[0] ? labelText(g.labels[0]) : g.value)),
       });
       continue;
