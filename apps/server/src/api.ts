@@ -35,6 +35,10 @@ import {
 } from "./answers.ts";
 import type { Paths } from "./config.ts";
 import { describeSync, syncContactDetails } from "./contact.ts";
+import type { PostingQuery } from "./discover.ts";
+import { homeSummary, searchPostings, skipPostings, unskipPostings } from "./discover.ts";
+import type { JobRunner } from "./jobs.ts";
+import { isJobKind, JobConflict } from "./jobs.ts";
 import type { ApplicationRow, FieldFillRow, Store } from "./db.ts";
 import {
   buildLlm,
@@ -78,6 +82,30 @@ export interface ServerDeps {
    * every application not yet submitted are brought up to date.
    */
   profilePath?: string;
+  /** Background jobs started from the review UI (find postings, prep, ...). Null: none. */
+  jobs?: JobRunner | null;
+  /** data/ (stories.md is read from here). */
+  home?: string;
+}
+
+/** Only the review UI itself may call these, never the extension or another page. */
+const UI_ONLY =
+  /^\/api\/(settings|jobs|postings|summary|stories|batches)\b|^\/api\/applications\/\d+\/launch\b/;
+
+/** An "Open & fill" from the review UI waits this long for the extension to pick it up. */
+export const LAUNCH_TTL_MS = 10 * 60 * 1000;
+
+/** The same site, ignoring subdomains: a board page that redirects to its job page still matches. */
+export function sameSite(a: string, b: string): boolean {
+  const site = (u: string) => {
+    try {
+      return new URL(u).hostname.split(".").slice(-2).join(".");
+    } catch {
+      return null;
+    }
+  };
+  const x = site(a);
+  return x !== null && x === site(b);
 }
 
 class HttpProblem extends Error {
@@ -175,9 +203,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     } else if (origin && !sameOrigin) {
       return reply.code(403).send({ error: "origin not allowed" });
     }
-    // Settings (provider, API key) are only for the review UI, never the extension.
-    if (req.url.startsWith("/api/settings") && origin && !sameOrigin) {
-      return reply.code(403).send({ error: "settings are only available in the review UI" });
+    // Settings, jobs, search and launches are only for the review UI, never the extension.
+    if (UI_ONLY.test(req.url) && origin && !sameOrigin) {
+      return reply.code(403).send({ error: "only available in the review UI" });
     }
     if (req.url.startsWith("/api/") && req.url !== "/api/health") {
       const t = req.headers["x-ia-token"];
@@ -401,9 +429,19 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       break;
     }
     if (!next) return { done: true, remaining: 0, closed };
+    return {
+      done: false,
+      remaining: approved.length - closed.length,
+      closed,
+      application: sessionApplication(next.a, next.p),
+    };
+  });
+
+  // What the extension needs to fill one application: the plan and the files to attach.
+  const sessionApplication = (a: ApplicationRow, p: Posting) => {
     const files: Record<string, { name: string; base64: string }> = {};
     for (const kind of ["resume", "cover_letter"] as const) {
-      const path = resumePathFor(deps.outDir, next.a.id, kind);
+      const path = resumePathFor(deps.outDir, a.id, kind);
       if (existsSync(path))
         files[kind] = {
           name: fileName(profile.identity.name, kind),
@@ -411,29 +449,120 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
         };
     }
     return {
-      done: false,
-      remaining: approved.length - closed.length,
-      closed,
-      application: {
-        id: next.a.id,
-        applyUrl: next.p.applyUrl,
-        ats: next.p.ats,
-        company: next.p.company,
-        title: next.p.title,
-        fields: store.listFieldFills(next.a.id).map((f) => ({
-          key: f.field_key,
-          label: f.label,
-          type: f.field_type,
-          value: f.planned_value,
-          options: f.options,
-          required: f.required,
-          attach: f.attach,
-          flag: f.flag,
-          note: f.note,
-        })),
-        files,
-      },
+      id: a.id,
+      applyUrl: p.applyUrl,
+      ats: p.ats,
+      company: p.company,
+      title: p.title,
+      fields: store.listFieldFills(a.id).map((f) => ({
+        key: f.field_key,
+        label: f.label,
+        type: f.field_type,
+        value: f.planned_value,
+        options: f.options,
+        required: f.required,
+        attach: f.attach,
+        flag: f.flag,
+        note: f.note,
+      })),
+      files,
     };
+  };
+
+  // ---------- Open & fill: the review UI opens one approved application ----------
+  // The UI records which application you chose and opens its page in a new tab. When that page
+  // loads, the extension asks for it here and fills it. Nothing is ever submitted.
+  let launch: { id: number; at: number } | null = null;
+
+  app.post<{ Params: { id: string } }>("/api/applications/:id/launch", async (req) => {
+    const a = mustApp(req.params.id);
+    if (a.status !== "approved")
+      throw new HttpProblem(409, `Approve it first: it's ${a.status.replace("_", " ")}.`);
+    await freshContacts([a.id]);
+    launch = { id: a.id, at: Date.now() };
+    const p = postingOf(a);
+    store.logEvent(a.id, "launched", {});
+    return { applyUrl: p.applyUrl, ats: p.ats };
+  });
+
+  app.post<{ Body: { url?: string } }>("/api/session/launch", async (req) => {
+    const url = String(req.body?.url ?? "");
+    const want = launch;
+    if (!want || Date.now() - want.at > LAUNCH_TTL_MS) return { application: null };
+    const a = store.getApplication(want.id);
+    if (!a || a.status !== "approved") return { application: null };
+    const p = postingOf(a);
+    if (!sameSite(url, p.applyUrl)) return { application: null };
+    launch = null; // one launch, one fill
+    await freshContacts([a.id]);
+    return { application: sessionApplication(mustApp(a.id), p) };
+  });
+
+  // ---------- background jobs (find postings, prep, batches, ...) ----------
+  const mustJobs = (): JobRunner => {
+    if (!deps.jobs) throw new HttpProblem(501, "background jobs aren't available in this server");
+    return deps.jobs;
+  };
+  app.get("/api/jobs", async () => mustJobs().list());
+  app.post<{ Body: { kind?: string; params?: Record<string, unknown> } }>(
+    "/api/jobs",
+    async (req, reply) => {
+      const kind = req.body?.kind;
+      if (!isJobKind(kind)) throw new HttpProblem(400, `unknown job "${String(kind)}"`);
+      try {
+        const job = mustJobs().start(kind, req.body?.params ?? {});
+        return reply.code(202).send(job);
+      } catch (e) {
+        if (e instanceof JobConflict) throw new HttpProblem(409, e.message);
+        throw e;
+      }
+    },
+  );
+  app.get<{ Params: { id: string } }>("/api/jobs/:id", async (req) => {
+    const job = mustJobs().get(Number(req.params.id));
+    if (!job) throw new HttpProblem(404, `no job ${req.params.id}`);
+    return job;
+  });
+  app.post<{ Params: { id: string } }>("/api/jobs/:id/cancel", async (req) => {
+    const job = mustJobs().cancel(Number(req.params.id));
+    if (!job) throw new HttpProblem(404, `no job ${req.params.id}`);
+    return job;
+  });
+  app.get("/api/batches", async () => store.openBatches());
+
+  // ---------- Discover: every posting found ----------
+  app.get<{ Querystring: Record<string, string | undefined> }>("/api/postings", async (req) => {
+    const q = req.query;
+    const num = (x: string | undefined) => (x === undefined || x === "" ? undefined : Number(x));
+    const query: PostingQuery = {
+      ...(q.q ? { q: q.q } : {}),
+      ...(q.tier ? { tier: q.tier as PostingQuery["tier"] } : {}),
+      ...(num(q.minScore) !== undefined ? { minScore: num(q.minScore)! } : {}),
+      ...(q.company ? { company: q.company } : {}),
+      ...(q.location ? { location: q.location } : {}),
+      ...(q.source ? { source: q.source } : {}),
+      ...(q.open ? { open: q.open as PostingQuery["open"] } : {}),
+      ...(q.filter ? { filter: q.filter as PostingQuery["filter"] } : {}),
+      ...(q.status ? { status: q.status as PostingQuery["status"] } : {}),
+      ...(q.sort ? { sort: q.sort as PostingQuery["sort"] } : {}),
+      ...(num(q.offset) !== undefined ? { offset: num(q.offset)! } : {}),
+      ...(num(q.limit) !== undefined ? { limit: num(q.limit)! } : {}),
+    };
+    return searchPostings(store, query);
+  });
+  app.post<{ Body: { ids?: string[]; undo?: boolean } }>("/api/postings/skip", async (req) => {
+    const ids = (req.body?.ids ?? []).map(String).slice(0, 500);
+    if (req.body?.undo) return { restored: unskipPostings(store, ids) };
+    return skipPostings(store, ids);
+  });
+  app.get("/api/summary", async () => ({
+    ...homeSummary(store),
+    questions: questionsInbox(store).length,
+    jobs: deps.jobs?.running() ?? [],
+  }));
+  app.get("/api/stories", async () => {
+    const path = deps.home ? join(deps.home, "stories.md") : null;
+    return { markdown: path && existsSync(path) ? readFileSync(path, "utf8") : null };
   });
 
   app.post<{ Params: { id: string }; Body: { seen?: Record<string, string | null> } }>(

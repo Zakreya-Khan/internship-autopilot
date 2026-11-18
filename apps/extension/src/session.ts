@@ -65,6 +65,8 @@ export interface SessionApi {
   ): Promise<void>;
   abandon(id: number): Promise<void>;
   mapFields(id: number, fields: PageFieldInfo[]): Promise<{ fields: MappedField[] }>;
+  /** The application you chose with "Open & fill" in the review UI, if this page is its site. */
+  launch?(url: string): Promise<{ application: SessionApplication | null }>;
 }
 
 export type Phase = "idle" | "loading" | "filling" | "waiting_for_you" | "done" | "error";
@@ -83,6 +85,8 @@ export interface SessionState {
   needsGeneric: boolean;
   /** Approved applications skipped this session because the posting closed. */
   closedSkipped: ClosedSkip[];
+  /** Opened with "Open & fill" in the review UI: just this one, never the next approved. */
+  single?: boolean;
 }
 
 export const IDLE: SessionState = {
@@ -194,6 +198,38 @@ export class SessionController {
     }
   }
 
+  /**
+   * A page loaded in a tab the session didn't open. If you just pressed "Open & fill" in the
+   * review UI for this site, adopt the tab and fill it. A running session is never interrupted.
+   */
+  async jobForPage(tabId: number, url: string): Promise<TabJob> {
+    const job = this.jobForTab(tabId);
+    if (job || !this.deps.api.launch) return job;
+    if (this.state.phase === "filling" || this.state.phase === "waiting_for_you") return null;
+    if (this.state.phase === "loading") return null;
+    let launched: SessionApplication | null;
+    try {
+      launched = (await this.deps.api.launch(url)).application;
+    } catch {
+      return null; // server not running or no token: nothing to adopt
+    }
+    if (!launched) return null;
+    this.current = launched;
+    this.snapshot = null;
+    const { files: _files, ...summary } = launched;
+    this.set({
+      ...IDLE,
+      submittedCount: this.state.submittedCount,
+      phase: "filling",
+      tabId,
+      application: summary,
+      remaining: 0,
+      single: true,
+      message: "Opened from the review UI.",
+    });
+    return { mode: "fill", application: launched };
+  }
+
   /** Called by a content script when its page loads. */
   jobForTab(tabId: number): TabJob {
     if (tabId !== this.state.tabId || !this.current) return null;
@@ -251,6 +287,7 @@ export class SessionController {
         ...(this.snapshot ? { snapshotHtml: this.snapshot } : {}),
       });
       this.set({ submittedCount: this.state.submittedCount + 1 });
+      if (this.state.single) return this.stopSingle("Recorded as submitted.");
       await this.advance();
     } catch (e) {
       this.set({ phase: "error", message: String(e) });
@@ -282,8 +319,20 @@ export class SessionController {
     } catch {
       /* already back to approved */
     }
+    if (this.state.single) return this.stopSingle("Left as approved.");
     this.set({ skip: [...this.state.skip, app.id] });
     await this.advance();
+  }
+
+  /** A single "Open & fill" is over: stop here instead of opening the next approved one. */
+  private stopSingle(what: string): void {
+    this.current = null;
+    this.set({
+      ...IDLE,
+      phase: "done",
+      submittedCount: this.state.submittedCount,
+      message: `${what} Open the next one from the review UI, or start a session here.`,
+    });
   }
 
   async end(): Promise<void> {

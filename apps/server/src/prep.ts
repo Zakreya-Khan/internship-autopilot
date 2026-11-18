@@ -463,7 +463,7 @@ export async function stillOpen(deps: PrepDeps, posting: Posting): Promise<boole
 
 export async function runPrep(
   deps: PrepDeps,
-  opts: { limit?: number; tiers?: Tier[] } = {},
+  opts: PrepOptions = {},
 ): Promise<{
   prepared: number;
   ready: number;
@@ -502,16 +502,48 @@ export async function runPrep(
   }
 }
 
+export interface PrepOptions {
+  limit?: number;
+  tiers?: Tier[];
+  /** Exactly these postings (picked in the review UI), whatever their tier or company count. */
+  postingIds?: string[];
+}
+
+/** The postings you picked: new ones, and unfinished ("prepared") ones; anything further along is left alone. */
+export function selectPicked(deps: PrepDeps, ids: string[]): PrepSelection[] {
+  const out: PrepSelection[] = [];
+  for (const id of ids) {
+    const posting = deps.store.getPosting(id);
+    if (!posting) continue;
+    const existing = deps.store.applicationForPosting(id);
+    if (existing && existing.status !== "prepared") continue;
+    const tier = existing?.tier ?? deps.store.getScore(id)?.fit?.tier ?? "B";
+    out.push({ posting, tier });
+  }
+  return out;
+}
+
 async function prepLoop(
   deps: PrepDeps,
-  opts: { limit?: number; tiers?: Tier[] },
+  opts: PrepOptions,
   report: Awaited<ReturnType<typeof runPrep>>,
 ): Promise<Awaited<ReturnType<typeof runPrep>>> {
-  const limit = opts.limit ?? 25;
+  const picked = opts.postingIds ? selectPicked(deps, opts.postingIds) : null;
+  const limit = picked ? picked.length : (opts.limit ?? 25);
   // Look further down the list than the limit, so closed postings don't shrink the run.
-  const pool = selectForPrep(deps, { ...opts, limit: deps.liveness ? limit * 3 + 5 : limit });
+  const pool =
+    picked ?? selectForPrep(deps, { ...opts, limit: deps.liveness ? limit * 3 + 5 : limit });
   for (const s of pool) {
     if (report.prepared + report.failed >= limit) break;
+    if (deps.signal?.aborted) {
+      report.stopped = "you cancelled it";
+      break;
+    }
+    deps.progress?.(
+      report.prepared + report.failed + report.closed,
+      Math.min(limit, pool.length),
+      `${s.posting.company}: ${s.posting.title}`,
+    );
     if (!(await stillOpen(deps, s.posting))) {
       report.closed++;
       continue;

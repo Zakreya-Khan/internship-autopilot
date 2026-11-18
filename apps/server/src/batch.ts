@@ -92,3 +92,18 @@ export async function collectPrepBatches(
   }
   return report;
 }
+
+/** Cancel every open batch. Their applications stay "prepared" and are redone by the next prep run. */
+export async function cancelPrepBatches(
+  deps: PrepDeps,
+  client: BatchClient,
+): Promise<{ cancelled: number }> {
+  if (!client.cancel) throw new Error("This batch client can't cancel batches.");
+  let cancelled = 0;
+  for (const b of deps.store.openBatches()) {
+    if ((await client.status(b.id)) === "ended") continue;
+    await client.cancel(b.id);
+    cancelled++;
+  }
+  return { cancelled };
+}

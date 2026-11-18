@@ -24,6 +24,16 @@ export interface PipelineDeps {
   llm: LlmClient | null;
   now?: () => Date;
   log?: (msg: string) => void;
+  /** Stops a long run between items (the review UI's Cancel). Work done so far is kept. */
+  signal?: AbortSignal;
+  /** Reports how far a long run has got, for the review UI. */
+  progress?: (done: number, total: number, note?: string) => void;
+}
+
+/** Postings from one company only: "Ring Works" matches "Ring Works Capital". */
+export function companyMatches(company: string, wanted: string | undefined): boolean {
+  const w = (wanted ?? "").trim().toLowerCase();
+  return !w || company.toLowerCase().includes(w);
 }
 
 export interface SourcingReport {
@@ -44,13 +54,24 @@ function relevant(p: Posting, profile: Profile): boolean {
 
 export async function runSourcing(
   deps: PipelineDeps,
-  opts: { includeSimplify?: boolean } = {},
+  opts: {
+    includeSimplify?: boolean;
+    /** Poll the boards on your watchlist (default true). */
+    includeWatchlist?: boolean;
+    /** Only this company: its watchlist board, and its rows from the GitHub list. */
+    company?: string;
+  } = {},
 ): Promise<SourcingReport> {
   const { store, profile } = deps;
   const now = (deps.now?.() ?? new Date()).toISOString();
+  const watchlist =
+    opts.includeWatchlist === false
+      ? []
+      : profile.preferences.watchlist.filter((w) => companyMatches(w.company, opts.company));
+  deps.progress?.(0, 1, "Polling sources");
   const poll = await pollSources({
     fetch: deps.fetch,
-    watchlist: profile.preferences.watchlist,
+    watchlist,
     now: deps.now?.() ?? new Date(),
     ...(opts.includeSimplify === undefined ? {} : { includeSimplify: opts.includeSimplify }),
   });
@@ -64,7 +85,10 @@ export async function runSourcing(
     if (b.error) errors.push(`${b.board}: ${b.error}`);
   }
 
-  const raws = [...poll.simplify, ...poll.boards.flatMap((b) => b.postings)];
+  const raws = [
+    ...poll.simplify.filter((r) => companyMatches(r.company, opts.company)),
+    ...poll.boards.flatMap((b) => b.postings),
+  ];
   const incoming = raws.map((r) => finalizePosting(r, now)).filter((p) => relevant(p, profile));
   const before = store.allPostings();
   const merged = upsertAll(before, incoming);
@@ -119,8 +143,12 @@ export async function runScoring(
   // Once the subscription's usage limit is hit (or the CLI is missing or signed out), the rest
   // use keywords; they're upgraded on a later run.
   let limited = false;
-  await mapLimit(store.openPostings(), opts.concurrency ?? 4, async (posting) => {
+  const open = store.openPostings();
+  await mapLimit(open, opts.concurrency ?? 4, async (posting) => {
+    if (deps.signal?.aborted) return;
     report.considered++;
+    if (report.considered % 25 === 0 || report.considered === open.length)
+      deps.progress?.(report.considered, open.length, "Scoring");
     const hash = shortHash(
       profileHash,
       posting.title,
@@ -204,7 +232,9 @@ export async function runEnrichment(
   // Workday turns automated clients away with HTTP 429. Once it does, leave it alone this run
   // rather than retrying every posting (the description is only needed for scoring).
   let workdayRefused = false;
-  for (const p of todo) {
+  for (const [i, p] of todo.entries()) {
+    if (deps.signal?.aborted) break;
+    deps.progress?.(i, todo.length, `Details: ${p.company}`);
     if (p.ats === "workday" && workdayRefused) continue;
     try {
       const d = await fetchPostingDetail(p, http, ashbyCache);

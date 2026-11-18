@@ -57,7 +57,7 @@ chrome.runtime.onMessage.addListener((msg: ToBackground, sender, reply) => {
         await controller.end();
         break;
       case "content:ready":
-        reply(controller.jobForTab(tabId));
+        reply(await controller.jobForPage(tabId, msg.url));
         return;
       case "content:filled":
         await controller.onFilled(tabId, msg.results, msg.snapshotHtml);

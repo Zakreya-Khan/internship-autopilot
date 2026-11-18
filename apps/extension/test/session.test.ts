@@ -112,6 +112,39 @@ describe("SessionController", () => {
   });
 });
 
+describe("Open & fill from the review UI", () => {
+  it("adopts the tab you opened, fills just that application, and stops after it", async () => {
+    const { c, api, calls, openTab } = harness([1, 2]);
+    api.launch = vi.fn(async (url: string) => ({
+      application: url.includes("greenhouse.io") ? app(5) : null,
+    }));
+    // A page on another site isn't adopted.
+    expect(await c.jobForPage(11, "https://example.org/careers")).toBeNull();
+    expect(c.get().phase).toBe("idle");
+
+    const job = await c.jobForPage(11, "https://job-boards.greenhouse.io/exampleco/jobs/5");
+    expect(job).toMatchObject({ mode: "fill", application: { id: 5 } });
+    expect(c.get()).toMatchObject({ phase: "filling", tabId: 11, single: true });
+    expect(openTab).not.toHaveBeenCalled();
+
+    await c.onFilled(11, [], null);
+    await c.onConfirmed(11, "https://job-boards.greenhouse.io/exampleco/jobs/5/confirmation");
+    expect(calls).toEqual(["filled:5", "submitted:5:confirmation_page"]);
+    // Done: it doesn't go on to the next approved application.
+    expect(c.get()).toMatchObject({ phase: "done", submittedCount: 1 });
+    expect(api.next).not.toHaveBeenCalled();
+  });
+
+  it("never interrupts a running session", async () => {
+    const { c, api } = harness([1]);
+    api.launch = vi.fn(async () => ({ application: app(5) }));
+    await c.start();
+    expect(await c.jobForPage(11, "https://job-boards.greenhouse.io/exampleco/jobs/5")).toBeNull();
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(c.get()).toMatchObject({ phase: "filling", application: { id: 1 } });
+  });
+});
+
 describe("unknown sites", () => {
   it("asks for the generic filler instead of injecting anything", async () => {
     const { c, api } = harness([1]);

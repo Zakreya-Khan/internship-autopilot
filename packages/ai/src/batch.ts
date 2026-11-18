@@ -11,6 +11,8 @@ export interface BatchClient {
   ): Promise<{ id: string }>;
   status(id: string): Promise<"in_progress" | "canceling" | "ended">;
   results(id: string): AsyncIterable<BatchResultLine>;
+  /** Stop a batch early. Requests not yet processed end as "canceled" and are redone live. */
+  cancel?(id: string): Promise<void>;
 }
 
 export type BatchResultLine =
@@ -55,6 +57,10 @@ export class AnthropicBatchClient implements BatchClient {
 
   async status(id: string): Promise<"in_progress" | "canceling" | "ended"> {
     return (await this.client.messages.batches.retrieve(id)).processing_status;
+  }
+
+  async cancel(id: string): Promise<void> {
+    await this.client.messages.batches.cancel(id);
   }
 
   async *results(id: string): AsyncIterable<BatchResultLine> {

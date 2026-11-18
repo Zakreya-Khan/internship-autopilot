@@ -1,4 +1,10 @@
-import type { MappedField, Mismatch, NextResponse, SessionApi } from "./session.ts";
+import type {
+  MappedField,
+  Mismatch,
+  NextResponse,
+  SessionApi,
+  SessionApplication,
+} from "./session.ts";
 
 export interface ServerConfig {
   baseUrl: string;
@@ -40,5 +46,7 @@ export function makeApi(
     },
     mapFields: (id, fields) =>
       call<{ fields: MappedField[] }>("POST", `/api/applications/${id}/map-fields`, { fields }),
+    launch: (url) =>
+      call<{ application: SessionApplication | null }>("POST", "/api/session/launch", { url }),
   };
 }

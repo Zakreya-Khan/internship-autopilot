@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import type { OutcomeReport, Tier } from "@ia/core";
-import { MODELS } from "@ia/ai";
+import { AnthropicBatchClient, MODELS } from "@ia/ai";
 import { POLL_INTERVAL_MS } from "@ia/sources";
 import { buildServer } from "./api.ts";
 import { registerCommand } from "./cli.ts";
@@ -16,7 +16,10 @@ import { makeLivenessCheck } from "./liveness.ts";
 import { qualifyCandidates } from "./qualify.ts";
 import type { PrepDeps } from "./prep.ts";
 import { runPrep } from "./prep.ts";
-import { buildLlm } from "./provider.ts";
+import { anthropicClient } from "@ia/ai";
+import { checkOpenPostings, outreachDraft, writeStories } from "./actions.ts";
+import { JobRunner } from "./jobs.ts";
+import { apiKeySource, buildLlm } from "./provider.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const UI_DIST = resolve(here, "../../ui/dist");
@@ -69,6 +72,11 @@ registerCommand("prep", async (ctx, args) => {
     );
 });
 
+/** The Message Batches client, with the key from the environment or the one saved in Settings. */
+export function batchClientFor(ctx: AppContext) {
+  return new AnthropicBatchClient(anthropicClient(apiKeySource(ctx.paths, process.env).key));
+}
+
 /** The Message Batches API needs an API key; through the CLI, Tier B is drafted one at a time. */
 export const CLI_NO_BATCH =
   "The Claude CLI has no Batch API, so Tier B drafts are prepared one at a time instead (prep does this). Switch to the API key in Settings for half-price batches.";
@@ -86,6 +94,21 @@ registerCommand("serve", async (ctx, args) => {
   });
   const port = Number(values.port ?? DEFAULT_PORT);
   const uiDir = existsSync(UI_DIST) ? UI_DIST : null;
+  // Everything the CLI does can also be started from the review UI, as a background job.
+  const jobs = new JobRunner({
+    store: ctx.store,
+    profile: () => ctx.profile,
+    llm: () => ctx.llm,
+    provider: () => ctx.provider,
+    llmReason: () => ctx.llmReason,
+    fetch,
+    outDir: ctx.paths.out,
+    home: ctx.paths.home,
+    liveness: () => (values["no-open-check"] ? null : makeLivenessCheck(fetch)),
+    batchClient: () => batchClientFor(ctx),
+    voice: ctx.voice,
+    coverBase: ctx.coverBase,
+  });
   const app = buildServer({
     store: ctx.store,
     profile: ctx.profile,
@@ -107,6 +130,8 @@ registerCommand("serve", async (ctx, args) => {
     coverBase: ctx.coverBase,
     liveness: values["no-open-check"] ? null : makeLivenessCheck(fetch),
     profilePath: ctx.paths.profile,
+    jobs,
+    home: ctx.paths.home,
   });
   // Contact details changed in profile.yaml since prep? Bring every unsubmitted application up to date.
   const synced = describeSync(await syncContactDetails(ctx.store, ctx.profile, ctx.paths.out));
@@ -130,7 +155,9 @@ registerCommand("serve", async (ctx, args) => {
           // Tier A live at high effort; Tier B overnight through the Batch API at half price.
           const { AnthropicBatchClient } = await import("@ia/ai");
           const { collectPrepBatches, submitPrepBatch } = await import("./batch.ts");
-          const client = new AnthropicBatchClient();
+          const client = new AnthropicBatchClient(
+            anthropicClient(apiKeySource(ctx.paths, process.env).key),
+          );
           await collectPrepBatches(deps, client);
           await runPrep(deps, { limit: 25, tiers: ["A"] });
           await submitPrepBatch(deps, client, { limit: 100 });
@@ -159,9 +186,8 @@ registerCommand("batch", async (ctx, args) => {
     return;
   }
   if (!ctx.llm) throw new Error(`The Batch API needs an Anthropic API key (${ctx.llmReason}).`);
-  const { AnthropicBatchClient } = await import("@ia/ai");
   const { collectPrepBatches, submitPrepBatch } = await import("./batch.ts");
-  const client = new AnthropicBatchClient();
+  const client = batchClientFor(ctx);
   const deps = prepDeps(ctx);
   if (sub === "submit") {
     const { values } = parseArgs({
@@ -350,12 +376,10 @@ registerCommand("check-open", async (ctx, args) => {
     return;
   }
   const limit = Number(values.limit ?? 25);
-  const counts = { active: 0, expired: 0, uncertain: 0 };
-  for (const { posting } of ctx.store.rankedCandidates(limit)) {
-    const r = await ensureOpen(ctx.store, posting, check, 0);
-    counts[r.verdict]++;
-    show(r.verdict, `${posting.company}: ${posting.title}`, `${r.code} (${r.via}): ${r.reason}`);
-  }
+  const postings = ctx.store.rankedCandidates(limit).map((r) => r.posting);
+  const counts = await checkOpenPostings(ctx.store, postings, check);
+  for (const r of counts.rows)
+    show(r.verdict, `${r.company}: ${r.title}`, `${r.code} (${r.via}): ${r.reason}`);
   console.log(
     `\n${counts.active} open, ${counts.expired} closed (recorded, won't come back), ${counts.uncertain} unclear (kept)`,
   );
@@ -363,23 +387,11 @@ registerCommand("check-open", async (ctx, args) => {
 
 registerCommand("stories", async (ctx, args) => {
   const { values } = parseArgs({ args, options: { count: { type: "string" } }, strict: false });
-  const { checkStory, storiesFromFacts, storiesMarkdown } = await import("@ia/core");
-  const { writeFileSync, mkdirSync } = await import("node:fs");
-  let stories;
-  if (ctx.llm) {
-    const { draftStories } = await import("@ia/ai");
-    stories = await draftStories(ctx.llm, ctx.profile, Number(values.count ?? 8));
-  } else {
+  if (!ctx.llm)
     console.log(`No Claude (${ctx.llmReason}): one story per entry, in your own words.`);
-    stories = storiesFromFacts(ctx.profile);
-  }
-  const issues = stories.flatMap((s) => checkStory(ctx.profile, s));
-  mkdirSync(ctx.paths.home, { recursive: true });
-  const out = `${ctx.paths.home}/stories.md`;
-  writeFileSync(out, storiesMarkdown(stories, issues));
-  const flagged = new Set(issues.map((i) => i.story)).size;
+  const r = await writeStories(ctx.profile, ctx.llm, ctx.paths.home, Number(values.count ?? 8));
   console.log(
-    `Wrote ${stories.length} stories to ${out}; ${flagged} need checking (marked in the file).`,
+    `Wrote ${r.stories.length} stories to ${r.path}; ${r.flagged} need checking (marked in the file).`,
   );
 });
 
@@ -401,28 +413,8 @@ registerCommand("outreach", async (ctx, args) => {
   if (!posting)
     throw new Error(`No stored posting matches "${ref}". Use an id from the review UI.`);
   if (!ctx.llm) throw new Error(`Outreach drafts need Claude (${ctx.llmReason}).`);
-  const { draftOutreach, OUTREACH_MAX_CHARS } = await import("@ia/ai");
-  const { checkClaims, checkWriting, profileOwnWords } = await import("@ia/core");
-  const d = await draftOutreach(ctx.llm, ctx.profile, posting, kind);
-  const problems = [
-    ...checkClaims(ctx.profile, [
-      {
-        where: "message",
-        text: d.message,
-        factIds: d.factIds,
-        mustCite: false,
-        context: `${posting.company}\n${posting.title}`,
-      },
-    ])
-      .filter((i) => i.severity === "block")
-      .map((i) => i.problem),
-    ...checkWriting([{ where: "message", text: d.message }], profileOwnWords(ctx.profile)).map(
-      (w) => w.problem,
-    ),
-    ...(d.message.length > OUTREACH_MAX_CHARS
-      ? [`${d.message.length} characters; trim to ${OUTREACH_MAX_CHARS}`]
-      : []),
-  ];
+  const d = await outreachDraft(ctx.llm, ctx.profile, posting, kind);
+  const problems = d.problems;
   console.log(
     `Draft (${kind}, ${d.message.length} characters). Not sent; copy it if you want it.\n`,
   );
