@@ -1,11 +1,18 @@
 // @vitest-environment happy-dom
 import type { ResumeDiff } from "@ia/core";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Field } from "../src/api.ts";
+import type { Field, QualifyItem } from "../src/api.ts";
+import { api } from "../src/api.ts";
 import { parseRoute } from "../src/App.tsx";
 import { FieldsTable } from "../src/components/FieldsTable.tsx";
 import { ResumeDiffView } from "../src/components/ResumeDiffView.tsx";
+import { Qualify } from "../src/pages/Qualify.tsx";
+
+vi.mock("../src/api.ts", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  api: { qualify: vi.fn() },
+}));
 
 afterEach(cleanup);
 
@@ -107,6 +114,55 @@ describe("routing", () => {
   it("parses hash routes", () => {
     expect(parseRoute("#/app/12")).toEqual({ page: "detail", id: 12 });
     expect(parseRoute("#/tracker")).toEqual({ page: "tracker" });
+    expect(parseRoute("#/qualify")).toEqual({ page: "qualify" });
     expect(parseRoute("")).toEqual({ page: "queue" });
+  });
+});
+
+describe("Qualify page", () => {
+  const item: QualifyItem = {
+    postingId: "p1",
+    company: "Close Co",
+    title: "Data Intern",
+    applyUrl: "https://example.test/apply",
+    locations: [],
+    tier: "A",
+    score: 82,
+    applicationId: null,
+    qualification: {
+      verdict: "close",
+      checks: [
+        { kind: "gpa", need: "GPA of 3.9 or higher", have: "GPA 3.70", met: false },
+        {
+          kind: "degree",
+          need: "pursuing a bachelor's degree",
+          have: "bachelor's degree",
+          met: true,
+        },
+      ],
+      notes: ["The posting says it doesn't sponsor visas. Check that against your situation."],
+    },
+  };
+
+  it("shows each requirement, which one is short, and what the posting says about visas", async () => {
+    vi.mocked(api.qualify).mockResolvedValue([item]);
+    render(<Qualify />);
+    await waitFor(() => expect(screen.getByText("Close Co")).toBeTruthy());
+    expect(api.qualify).toHaveBeenCalledWith("meets");
+    expect(screen.getByText("Short")).toBeTruthy();
+    expect(screen.getByText("GPA of 3.9 or higher")).toBeTruthy();
+    expect(screen.getByText(/doesn't sponsor visas/)).toBeTruthy();
+    // Not prepared yet, so the title links out to the posting.
+    expect(screen.getByRole("link", { name: "Data Intern" }).getAttribute("href")).toBe(
+      "https://example.test/apply",
+    );
+  });
+
+  it("asks for the one-short list when switched", async () => {
+    vi.mocked(api.qualify).mockResolvedValue([]);
+    render(<Qualify />);
+    await waitFor(() => expect(screen.getByText(/Nothing here yet/)).toBeTruthy());
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "close" } });
+    await waitFor(() => expect(api.qualify).toHaveBeenLastCalledWith("close"));
   });
 });

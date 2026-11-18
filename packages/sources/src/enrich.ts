@@ -3,6 +3,7 @@ import { fetchGreenhouseDetail } from "./greenhouse.ts";
 import type { GetJsonOptions } from "./http.ts";
 import { getJson } from "./http.ts";
 import { fetchLeverPosting } from "./lever.ts";
+import { fetchLeverQuestions } from "./lever-form.ts";
 import { fetchSmartRecruitersDetail } from "./smartrecruiters.ts";
 import { fetchWorkdayDetail, workdayDetailUrl } from "./workday.ts";
 
@@ -25,7 +26,7 @@ export function canEnrich(p: DetailRef): boolean {
 }
 
 /**
- * Description (and, for Greenhouse, the application form) for one posting, from the ATS's
+ * Description (and, for Greenhouse and Lever, the application form) for one posting, from the ATS's
  * public API. Ashby has no single-job endpoint, so one board read serves every job on it.
  */
 export async function fetchPostingDetail(
@@ -51,7 +52,10 @@ export async function fetchPostingDetail(
   if (p.ats === "greenhouse") return fetchGreenhouseDetail(token, id, opts);
   if (p.ats === "lever") {
     const d = await fetchLeverPosting(token, id, opts);
-    return { ...d, questions: null, deadline: null };
+    // The description is the point of this call; if the apply page can't be read right now, keep
+    // the description and leave the questions unset so a later run tries again.
+    const questions = await fetchLeverQuestions(token, id, opts).catch(() => null);
+    return { ...d, questions, deadline: null };
   }
   if (p.ats === "smartrecruiters") {
     const d = await fetchSmartRecruitersDetail(token, id, opts);

@@ -22,6 +22,9 @@ Phase 0
   refresh              source + score + enrich + score
   list [--tier A|B|C] [--limit N]
                        Show ranked candidates
+  qualify [--close] [--tier A|B|C] [--limit N]
+                       Candidates whose stated minimums (degree, graduation, GPA, experience,
+                       required skills) you meet; --close: ones exactly one requirement short
   check-open [URL ...] [--limit N]
                        Ask each job board whether postings are still open (top N candidates, or
                        the URLs given). Closed ones are recorded and never come back.

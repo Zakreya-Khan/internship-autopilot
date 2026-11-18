@@ -1,17 +1,23 @@
 import { useEffect, useState } from "react";
 import { DetailPage } from "./pages/DetailPage.tsx";
+import { Qualify } from "./pages/Qualify.tsx";
 import { Queue } from "./pages/Queue.tsx";
 import { Stats } from "./pages/Stats.tsx";
 import { Tracker } from "./pages/Tracker.tsx";
 
 type Route =
-  { page: "queue" } | { page: "detail"; id: number } | { page: "tracker" } | { page: "stats" };
+  | { page: "queue" }
+  | { page: "detail"; id: number }
+  | { page: "tracker" }
+  | { page: "stats" }
+  | { page: "qualify" };
 
 export function parseRoute(hash: string): Route {
   const m = /^#\/app\/(\d+)/.exec(hash);
   if (m) return { page: "detail", id: Number(m[1]) };
   if (hash.startsWith("#/tracker")) return { page: "tracker" };
   if (hash.startsWith("#/stats")) return { page: "stats" };
+  if (hash.startsWith("#/qualify")) return { page: "qualify" };
   return { page: "queue" };
 }
 
@@ -29,6 +35,9 @@ export function App() {
         <a href="#/" aria-current={route.page === "queue" ? "page" : undefined}>
           Queue
         </a>
+        <a href="#/qualify" aria-current={route.page === "qualify" ? "page" : undefined}>
+          Qualify
+        </a>
         <a href="#/tracker" aria-current={route.page === "tracker" ? "page" : undefined}>
           Tracker
         </a>
@@ -44,6 +53,7 @@ export function App() {
         {route.page === "detail" ? <DetailPage id={route.id} /> : null}
         {route.page === "tracker" ? <Tracker /> : null}
         {route.page === "stats" ? <Stats /> : null}
+        {route.page === "qualify" ? <Qualify /> : null}
       </main>
     </>
   );

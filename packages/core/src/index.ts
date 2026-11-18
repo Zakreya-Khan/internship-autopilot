@@ -9,6 +9,7 @@ export * from "./fieldmap.ts";
 export * from "./fillplan.ts";
 export * from "./filters.ts";
 export * from "./profile.ts";
+export * from "./qualify.ts";
 export * from "./questions.ts";
 export * from "./resume.ts";
 export * from "./scoring.ts";

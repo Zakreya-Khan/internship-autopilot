@@ -3,6 +3,7 @@ import type {
   ApplicationStatus,
   FitScore,
   OutcomeReport,
+  Qualification,
   ResumeDiff,
   Tier,
   TruthIssue,
@@ -18,6 +19,18 @@ export interface PostingSummary {
   deadline: string | null;
   sponsorship: string;
   sourceLinks: string[];
+}
+
+export interface QualifyItem {
+  postingId: string;
+  company: string;
+  title: string;
+  applyUrl: string;
+  locations: string[];
+  tier: Tier | null;
+  score: number | null;
+  applicationId: number | null;
+  qualification: Qualification;
 }
 
 export interface Flags {
@@ -150,6 +163,8 @@ export const api = {
     fields: Partial<Pick<ApplicationRow, "next_action" | "next_action_due" | "contact" | "notes">>,
   ) => call<{ ok: true }>("PATCH", `/api/applications/${id}/tracking`, fields),
   stats: () => call<Stats>("GET", "/api/stats"),
+  qualify: (verdict: "meets" | "close") =>
+    call<QualifyItem[]>("GET", `/api/qualify?verdict=${verdict}`),
   fileUrl: (id: number, kind: "resume" | "cover_letter") => `/api/applications/${id}/files/${kind}`,
 };
 

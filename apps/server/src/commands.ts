@@ -12,6 +12,7 @@ import { DEFAULT_PORT, HOST } from "./config.ts";
 import type { AppContext } from "./context.ts";
 import { runEnrichment, runScoring, runSourcing } from "./pipeline.ts";
 import { makeLivenessCheck } from "./liveness.ts";
+import { qualifyCandidates } from "./qualify.ts";
 import type { PrepDeps } from "./prep.ts";
 import { runPrep } from "./prep.ts";
 
@@ -147,6 +148,41 @@ registerCommand("batch", async (ctx, args) => {
     );
   } else {
     console.log("Usage: npm run ia -- batch submit [--limit N] | batch collect");
+  }
+});
+
+registerCommand("qualify", async (ctx, args) => {
+  const { values } = parseArgs({
+    args,
+    options: {
+      close: { type: "boolean" },
+      tier: { type: "string" },
+      limit: { type: "string" },
+    },
+    strict: false,
+  });
+  const tier = ["A", "B", "C"].includes(String(values.tier)) ? (values.tier as Tier) : undefined;
+  const close = Boolean(values.close);
+  const rows = qualifyCandidates(ctx.store, ctx.profile, {
+    verdict: close ? "close" : "meets",
+    ...(tier ? { tier } : {}),
+  }).slice(0, Number(values.limit ?? 30));
+  if (!rows.length) {
+    console.log(
+      close
+        ? "No candidates are exactly one stated requirement short."
+        : "No candidates state two or more minimums that you all meet. Run `refresh` first, and set ANTHROPIC_API_KEY so required skills are read from each posting.",
+    );
+    return;
+  }
+  console.log(close ? "One requirement short:" : "You meet every minimum the posting states:");
+  for (const r of rows) {
+    console.log(`\n${r.tier ?? "-"} ${String(r.score ?? "-").padEnd(4)}${r.company}: ${r.title}`);
+    for (const c of r.qualification.checks) {
+      const mark = c.met === true ? "met   " : c.met === false ? "SHORT " : "can't tell ";
+      console.log(`    ${mark}${c.need}${c.have ? ` (you: ${c.have})` : ""}`);
+    }
+    for (const n of r.qualification.notes) console.log(`    note: ${n}`);
   }
 });
 

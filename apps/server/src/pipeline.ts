@@ -185,7 +185,11 @@ export async function runEnrichment(
   const todo = store
     .rankedCandidates(5000)
     .map((r) => r.posting)
-    .filter((p) => canEnrich(p) && (!p.descriptionText || (p.ats === "greenhouse" && !p.questions)))
+    .filter(
+      (p) =>
+        canEnrich(p) &&
+        (!p.descriptionText || ((p.ats === "greenhouse" || p.ats === "lever") && !p.questions)),
+    )
     .slice(0, opts.limit ?? 150);
   const report: EnrichReport = { tried: todo.length, enriched: 0, failed: 0 };
   const ashbyCache = new Map();

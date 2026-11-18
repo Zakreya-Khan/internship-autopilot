@@ -263,3 +263,9 @@ textarea {
   border-left: 3px solid var(--accent);
   padding-left: 12px;
 }
+
+ul.plain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}

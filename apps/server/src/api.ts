@@ -28,6 +28,7 @@ import type { ApplicationRow, FieldFillRow, Store } from "./db.ts";
 import type { LivenessCheck } from "./liveness.ts";
 import { ensureOpen, SESSION_RECHECK_MS } from "./liveness.ts";
 import { resumePathFor } from "./prep.ts";
+import { qualifyCandidates } from "./qualify.ts";
 
 export interface ServerDeps {
   store: Store;
@@ -543,6 +544,13 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     ...outcomeReport(outcomeRows()),
     cost: store.costSummary(),
   }));
+
+  // ---------- do I meet the minimums? ----------
+  app.get<{ Querystring: { verdict?: string; tier?: string } }>("/api/qualify", async (req) => {
+    const verdict = req.query.verdict === "close" ? "close" : "meets";
+    const tier = req.query.tier as "A" | "B" | "C" | undefined;
+    return qualifyCandidates(store, deps.profile, { verdict, ...(tier ? { tier } : {}) });
+  });
 
   // ---------- review UI ----------
   if (deps.uiDir && existsSync(join(deps.uiDir, "index.html"))) {
