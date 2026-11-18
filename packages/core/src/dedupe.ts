@@ -59,6 +59,8 @@ const SOURCE_RANK: Record<string, number> = {
   greenhouse: 3,
   lever: 3,
   ashby: 3,
+  workday: 3,
+  smartrecruiters: 3,
   simplify: 2,
   manual: 1,
 };

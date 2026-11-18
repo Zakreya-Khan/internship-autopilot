@@ -76,6 +76,11 @@ answer_bank:
 style:
   voice: "plain, specific, no buzzwords"
   cover_letter_words: [250, 350]
+  # Optional: files or folders of your own writing (.txt or .md), relative to this file. Keep them
+  # under data/ so they're never committed. Only numbers measured from them (sentence length,
+  # contractions, how often you say "I") shape cover letters and short answers; the text itself
+  # is never sent to the model or copied into an application. Resume bullets ignore this.
+  writing_samples: [] # e.g. ["data/writing-samples"]
 
 # What to look for. Hard filters drop postings; the rest feeds the fit score.
 preferences:
@@ -87,6 +92,12 @@ preferences:
   include_coops: false
   degree_level: bachelors # associates | bachelors | masters | phd
   target_companies: [] # always Tier A
-  watchlist: [] # boards to poll, e.g. {company: "Example Co", ats: greenhouse, token: exampleco}
+  # Boards to poll directly, beyond the SimplifyJobs list. Greenhouse, Lever, Ashby and
+  # SmartRecruiters take the board's slug as token; Workday takes the careers-site URL.
+  watchlist: []
+  # watchlist:
+  #   - { company: "Example Co", ats: greenhouse, token: exampleco }
+  #   - { company: "Example Co", ats: smartrecruiters, token: ExampleCo }
+  #   - { company: "Example Co", ats: workday, url: "https://exampleco.wd5.myworkdayjobs.com/Careers" }
   per_company_cap: 3
   tier_thresholds: { a: 80, b: 60 }

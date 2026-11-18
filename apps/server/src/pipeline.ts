@@ -3,6 +3,7 @@ import {
   applyHardFilters,
   computeFitScore,
   detectSponsorship,
+  detectTerms,
   finalizePosting,
   isInternshipTitle,
   keywordRequirementMatch,
@@ -12,7 +13,7 @@ import {
 import type { LlmClient } from "@ia/ai";
 import { matchRequirements } from "@ia/ai";
 import type { FetchFn } from "@ia/sources";
-import { boardKey, canEnrich, fetchPostingDetail, HostRateLimiter, pollSources } from "@ia/sources";
+import { canEnrich, fetchPostingDetail, HostRateLimiter, pollSources } from "@ia/sources";
 import type { Store } from "./db.ts";
 import { mapLimit, shortHash } from "./util.ts";
 
@@ -50,6 +51,7 @@ export async function runSourcing(
   const poll = await pollSources({
     fetch: deps.fetch,
     watchlist: profile.preferences.watchlist,
+    now: deps.now?.() ?? new Date(),
     ...(opts.includeSimplify === undefined ? {} : { includeSimplify: opts.includeSimplify }),
   });
   const errors: string[] = [];
@@ -72,12 +74,11 @@ export async function runSourcing(
   for (const b of poll.boards) {
     if (b.error) continue;
     const seen = new Set(b.postings.map((r) => finalizePosting(r, now).id));
-    postings = markMissing(
-      postings,
-      seen,
-      (p) => p.boardToken !== null && boardKey(p.ats, p.boardToken) === b.board,
-    );
+    postings = markMissing(postings, seen, b.owns);
   }
+  // A posting the open-check found closed stays closed, even if a list still shows it.
+  const expired = store.expiredPostingIds();
+  postings = postings.map((p) => (p.isOpen && expired.has(p.id) ? { ...p, isOpen: false } : p));
   const wasOpen = new Set(before.filter((p) => p.isOpen).map((p) => p.id));
   const closed = postings.filter((p) => !p.isOpen && wasOpen.has(p.id)).length;
   store.savePostings(postings);
@@ -192,6 +193,8 @@ export async function runEnrichment(
           ...p,
           descriptionText: d.descriptionText ?? p.descriptionText,
           questions: d.questions ?? p.questions,
+          locations: p.locations.length ? p.locations : (d.locations ?? []),
+          terms: p.terms.length ? p.terms : detectTerms(d.descriptionText ?? ""),
           deadline: d.deadline ?? p.deadline,
           sponsorship: detectSponsorship(SPONSORSHIP_FLAG[p.sponsorship], d.descriptionText),
         },

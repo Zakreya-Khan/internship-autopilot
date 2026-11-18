@@ -1,0 +1,40 @@
+internship-autopilot
+Copyright (c) 2026 the internship-autopilot authors
+
+Parts of this project adapt logic, regular expressions and word lists from career-ops
+(https://github.com/career-ops-hq/career-ops), used under the MIT License:
+
+  - packages/sources/src/liveness.ts: text normalization, closure and apply-control patterns,
+    the classification order, and the per-board API rules (liveness-core.mjs, liveness-api.mjs)
+  - packages/sources/src/workday.ts: the Workday CXS jobs endpoint and "Posted N Days Ago"
+    parsing (providers/workday.mjs)
+  - packages/core/src/writing.ts: banned word and phrase lists and the date-range dash exemption
+    (cv-voice.mjs, modes/_writing.md, voice-dna.template.md)
+  - packages/core/src/voice.ts: the numeric writing-sample measures (writing-profile.mjs)
+  - packages/core/src/stories.ts: STAR story fields and the number provenance check
+    (lib/story-bank.mjs, story-provenance-check.mjs, verify-cv-facts.mjs)
+
+The code was rewritten in TypeScript for this project; none of the original files are included.
+
+------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2026 Santiago Fernández de Valderrama
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

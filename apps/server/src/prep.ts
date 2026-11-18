@@ -8,28 +8,39 @@ import type {
   ResumeDoc,
   Tier,
   TruthIssue,
+  VoiceTraits,
+  WritingIssue,
 } from "@ia/core";
 import {
   applyResumePlan,
   buildBaseResume,
   buildFillPlan,
   checkClaims,
+  checkWriting,
   classifyQuestion,
   diffResume,
   hasBlockingFlags,
   indexFacts,
   normalizeCompany,
+  profileOwnWords,
   questionKey,
   STANDARD_QUESTIONS,
+  voiceNotes,
 } from "@ia/core";
 import type { Draft, DraftRequest } from "@ia/ai";
 import { draftApplication, modelTruthCheck } from "@ia/ai";
 import { parseCheckResume, renderCoverLetterPdf, renderResumePdf } from "@ia/render";
 import type { ApplicationRow, Store } from "./db.ts";
+import type { LivenessCheck } from "./liveness.ts";
+import { ensureOpen, PREP_RECHECK_MS } from "./liveness.ts";
 import type { PipelineDeps } from "./pipeline.ts";
 
 export interface PrepDeps extends PipelineDeps {
   outDir: string;
+  /** Checks a posting is still open before any tokens are spent on it. Null: no check. */
+  liveness?: LivenessCheck | null;
+  /** Numbers measured from your writing samples (profile style.writing_samples). */
+  voice?: VoiceTraits | null;
   /** Drafting model for Tier B, if the user opted into Sonnet. Tier A always uses Opus. */
   tierBModel?: DraftRequest["model"];
 }
@@ -73,8 +84,24 @@ export function draftRequest(deps: PrepDeps, i: PrepInputs): DraftRequest {
     tier: i.tier,
     openQuestions: i.openToDraft,
     coverLetter: i.coverLetter,
+    voice: deps.voice ?? null,
     ...(i.tier === "B" && deps.tierBModel ? { model: deps.tierBModel } : {}),
   };
+}
+
+/** Every generated text in a draft, labelled the same way the truth check labels it. */
+export function draftTexts(draft: Draft): { where: string; text: string }[] {
+  return [
+    ...draft.resumePlan.entries.flatMap((e) =>
+      e.bullets.map((b, n) => ({ where: `bullet:${e.entryId}:${n}`, text: b.text })),
+    ),
+    ...draft.answers.map((a) => ({ where: `answer:${a.questionKey}`, text: a.text })),
+    ...(draft.coverLetter ?? []).map((p, n) => ({ where: `cover:${n}`, text: p.text })),
+  ];
+}
+
+export function writingIssuesFor(deps: PrepDeps, draft: Draft): WritingIssue[] {
+  return checkWriting(draftTexts(draft), profileOwnWords(deps.profile));
 }
 
 /** No model available: the base resume, untouched, and every open question left for you. */
@@ -156,6 +183,15 @@ export async function completePrep(
     })),
   ];
   const issues = checkClaims(profile, claims);
+  // Writing rules, on the same texts the truth check sees. A bullet that breaks one goes back
+  // to your own wording; an answer or cover letter that breaks one is flagged for you.
+  for (const w of checkWriting(claims, profileOwnWords(profile)))
+    issues.push({ where: w.where, problem: w.problem, severity: "block" });
+  for (const note of voiceNotes(
+    deps.voice ?? null,
+    (draft.coverLetter ?? []).map((p) => p.text).join("\n\n"),
+  ))
+    issues.push({ where: "cover:0", problem: note, severity: "warn" });
   if (deps.llm) {
     try {
       issues.push(...(await modelTruthCheck(deps.llm, profile, claims)));
@@ -254,9 +290,20 @@ export async function prepareOne(
   tier: Tier,
 ): Promise<PrepOutcome> {
   const inputs = prepInputs(deps, posting, tier);
-  const draft = deps.llm
-    ? await draftApplication(deps.llm, draftRequest(deps, inputs))
-    : offlineDraft(deps);
+  if (!deps.llm) return completePrep(deps, inputs, offlineDraft(deps));
+  const req = draftRequest(deps, inputs);
+  let draft = await draftApplication(deps.llm, req);
+  // One redraft if the model broke the writing rules; anything left is flagged in review.
+  const broken = writingIssuesFor(deps, draft);
+  if (broken.length) {
+    deps.store.logEvent(inputs.app.id, "redraft_for_writing", {
+      problems: broken.map((b) => `${b.where}: ${b.match}`),
+    });
+    draft = await draftApplication(deps.llm, {
+      ...req,
+      revisionNotes: broken.map((b) => `${b.where}: ${b.problem}`),
+    });
+  }
   return completePrep(deps, inputs, draft);
 }
 
@@ -300,12 +347,52 @@ export function selectForPrep(
   return out;
 }
 
+/**
+ * Is this posting still open? An expired one is skipped (and its application, if a failed run
+ * left one, is marked skipped). Uncertain answers keep the posting.
+ */
+export async function stillOpen(deps: PrepDeps, posting: Posting): Promise<boolean> {
+  if (!deps.liveness) return true;
+  const r = await ensureOpen(
+    deps.store,
+    posting,
+    deps.liveness,
+    PREP_RECHECK_MS,
+    deps.now?.() ?? new Date(),
+  );
+  if (r.verdict !== "expired") return true;
+  deps.log?.(`skipped ${posting.company}: ${posting.title} (closed: ${r.reason})`);
+  const app = deps.store.applicationForPosting(posting.id);
+  if (
+    app &&
+    (app.status === "prepared" || app.status === "needs_input" || app.status === "ready")
+  ) {
+    deps.store.setStatus(app.id, "skipped");
+    deps.store.logEvent(app.id, "posting_closed", { code: r.code, reason: r.reason });
+  }
+  return false;
+}
+
 export async function runPrep(
   deps: PrepDeps,
   opts: { limit?: number; tiers?: Tier[] } = {},
-): Promise<{ prepared: number; ready: number; needsInput: number; failed: number }> {
-  const report = { prepared: 0, ready: 0, needsInput: 0, failed: 0 };
-  for (const s of selectForPrep(deps, opts)) {
+): Promise<{
+  prepared: number;
+  ready: number;
+  needsInput: number;
+  failed: number;
+  closed: number;
+}> {
+  const report = { prepared: 0, ready: 0, needsInput: 0, failed: 0, closed: 0 };
+  const limit = opts.limit ?? 25;
+  // Look further down the list than the limit, so closed postings don't shrink the run.
+  const pool = selectForPrep(deps, { ...opts, limit: deps.liveness ? limit * 3 + 5 : limit });
+  for (const s of pool) {
+    if (report.prepared + report.failed >= limit) break;
+    if (!(await stillOpen(deps, s.posting))) {
+      report.closed++;
+      continue;
+    }
     try {
       const r = await prepareOne(deps, s.posting, s.tier);
       report.prepared++;

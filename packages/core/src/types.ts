@@ -11,7 +11,8 @@ export const ATS_LIST = [
 ] as const;
 export type Ats = (typeof ATS_LIST)[number];
 
-export type SourceName = "simplify" | "greenhouse" | "lever" | "ashby" | "manual";
+export type SourceName =
+  "simplify" | "greenhouse" | "lever" | "ashby" | "workday" | "smartrecruiters" | "manual";
 
 export type Sponsorship = "offers" | "no_sponsorship" | "citizenship_required" | "unknown";
 

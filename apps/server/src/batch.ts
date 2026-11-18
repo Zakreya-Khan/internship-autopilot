@@ -7,7 +7,7 @@ import {
   parseBatchLine,
 } from "@ia/ai";
 import type { PrepDeps } from "./prep.ts";
-import { completePrep, draftRequest, prepInputs, selectForPrep } from "./prep.ts";
+import { completePrep, draftRequest, prepInputs, selectForPrep, stillOpen } from "./prep.ts";
 
 const customId = (applicationId: number) => `app-${applicationId}`;
 
@@ -22,10 +22,12 @@ export async function submitPrepBatch(
 ): Promise<{ batchId: string | null; count: number }> {
   const { store } = deps;
   const inFlight = new Set(store.openBatches().flatMap((b) => b.application_ids));
-  const picks = selectForPrep(deps, { limit: opts.limit ?? 100, tiers: ["B"] }).filter((s) => {
+  const candidates = selectForPrep(deps, { limit: opts.limit ?? 100, tiers: ["B"] }).filter((s) => {
     const existing = store.applicationForPosting(s.posting.id);
     return !existing || !inFlight.has(existing.id);
   });
+  const picks = [];
+  for (const s of candidates) if (await stillOpen(deps, s.posting)) picks.push(s);
   if (picks.length === 0) return { batchId: null, count: 0 };
   const inputs = picks.map((s) => prepInputs(deps, s.posting, s.tier));
   const { id } = await client.create(

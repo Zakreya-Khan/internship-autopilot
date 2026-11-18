@@ -10,9 +10,17 @@ export interface SessionApplication {
   files: Partial<Record<"resume" | "cover_letter", { name: string; base64: string }>>;
 }
 
+/** An approved application whose posting closed before the session reached it. */
+export interface ClosedSkip {
+  id: number;
+  company: string;
+  title: string;
+  reason: string;
+}
+
 export type NextResponse =
-  | { done: true; remaining: 0 }
-  | { done: false; remaining: number; application: SessionApplication };
+  | { done: true; remaining: 0; closed?: ClosedSkip[] }
+  | { done: false; remaining: number; application: SessionApplication; closed?: ClosedSkip[] };
 
 export interface Mismatch {
   key: string;
@@ -73,6 +81,8 @@ export interface SessionState {
   message: string | null;
   /** The page isn't a known career site: the generic filler needs your OK for this site. */
   needsGeneric: boolean;
+  /** Approved applications skipped this session because the posting closed. */
+  closedSkipped: ClosedSkip[];
 }
 
 export const IDLE: SessionState = {
@@ -86,6 +96,7 @@ export const IDLE: SessionState = {
   problems: [],
   message: null,
   needsGeneric: false,
+  closedSkipped: [],
 };
 
 export interface SessionDeps {
@@ -140,13 +151,19 @@ export class SessionController {
     this.set({ phase: "loading", mismatches: [], problems: [], message: null });
     try {
       const next = await this.deps.api.next(this.state.skip);
+      const closedNow = next.closed ?? [];
+      const closedSkipped = [...(this.state.closedSkipped ?? []), ...closedNow];
+      const closedNote = closedNow.length
+        ? `Skipped ${closedNow.length} that closed since you approved ${closedNow.length === 1 ? "it" : "them"}: ${closedNow.map((c) => c.company).join(", ")}.`
+        : null;
       if (next.done) {
         this.current = null;
         this.set({
           phase: "done",
           application: null,
           remaining: 0,
-          message: "No approved applications left.",
+          closedSkipped,
+          message: [closedNote, "No approved applications left."].filter(Boolean).join(" "),
         });
         return;
       }
@@ -161,9 +178,16 @@ export class SessionController {
         application: summary,
         remaining: next.remaining,
         needsGeneric: !known,
-        message: known
-          ? null
-          : "This site isn't one the extension knows. Press “Fill this page” to allow it for this site and try the generic filler, or fill it by hand.",
+        closedSkipped,
+        message:
+          [
+            closedNote,
+            known
+              ? null
+              : "This site isn't one the extension knows. Press “Fill this page” to allow it for this site and try the generic filler, or fill it by hand.",
+          ]
+            .filter(Boolean)
+            .join(" ") || null,
       });
     } catch (e) {
       this.set({ phase: "error", message: `Couldn't reach the local server: ${String(e)}` });

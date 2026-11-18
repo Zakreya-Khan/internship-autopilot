@@ -27,6 +27,9 @@ function render(s: SessionState): void {
     ...(s.application?.fields ?? [])
       .filter((f) => f.flag === "grey" && f.note)
       .map((f) => li(`${f.label}: ${f.note}`)),
+    ...(s.closedSkipped ?? []).map((c) =>
+      li(`Closed since approval, skipped: ${c.title} · ${c.company} (${c.reason})`),
+    ),
   );
   const running = !["idle", "done", "error"].includes(s.phase);
   $<HTMLButtonElement>("start").hidden = running;

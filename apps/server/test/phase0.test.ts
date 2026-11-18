@@ -11,7 +11,7 @@ describe("Store", () => {
   it("migrates a fresh database to the latest version", () => {
     const store = memoryStore();
     const v = store.db.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(v.user_version).toBe(3);
+    expect(v.user_version).toBe(4);
   });
 
   it("enforces the status machine and stamps times", () => {

@@ -11,18 +11,23 @@ import { registerCommand } from "./cli.ts";
 import { DEFAULT_PORT, HOST } from "./config.ts";
 import type { AppContext } from "./context.ts";
 import { runEnrichment, runScoring, runSourcing } from "./pipeline.ts";
+import { makeLivenessCheck } from "./liveness.ts";
 import type { PrepDeps } from "./prep.ts";
 import { runPrep } from "./prep.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const UI_DIST = resolve(here, "../../ui/dist");
 
-export function prepDeps(ctx: AppContext, opts: { sonnetForTierB?: boolean } = {}): PrepDeps {
+export function prepDeps(
+  ctx: AppContext,
+  opts: { sonnetForTierB?: boolean; skipOpenCheck?: boolean } = {},
+): PrepDeps {
   return {
     ...ctx,
     fetch,
     outDir: ctx.paths.out,
     log: console.warn,
+    liveness: opts.skipOpenCheck ? null : makeLivenessCheck(fetch),
     ...(opts.sonnetForTierB ? { tierBModel: MODELS.sonnet } : {}),
   };
 }
@@ -30,7 +35,12 @@ export function prepDeps(ctx: AppContext, opts: { sonnetForTierB?: boolean } = {
 registerCommand("prep", async (ctx, args) => {
   const { values } = parseArgs({
     args,
-    options: { limit: { type: "string" }, tier: { type: "string" }, sonnet: { type: "boolean" } },
+    options: {
+      limit: { type: "string" },
+      tier: { type: "string" },
+      sonnet: { type: "boolean" },
+      "no-open-check": { type: "boolean" },
+    },
     strict: false,
   });
   if (!ctx.llm)
@@ -38,19 +48,27 @@ registerCommand("prep", async (ctx, args) => {
       "No Claude credentials (or --offline): base resume only, open questions left for you.",
     );
   const tiers = values.tier ? (String(values.tier).split(",") as Tier[]) : undefined;
-  const r = await runPrep(prepDeps(ctx, { sonnetForTierB: Boolean(values.sonnet) }), {
-    limit: Number(values.limit ?? 10),
-    ...(tiers ? { tiers } : {}),
-  });
+  const r = await runPrep(
+    prepDeps(ctx, {
+      sonnetForTierB: Boolean(values.sonnet),
+      skipOpenCheck: Boolean(values["no-open-check"]),
+    }),
+    { limit: Number(values.limit ?? 10), ...(tiers ? { tiers } : {}) },
+  );
   console.log(
-    `prepared ${r.prepared}: ${r.ready} ready, ${r.needsInput} need input, ${r.failed} failed`,
+    `prepared ${r.prepared}: ${r.ready} ready, ${r.needsInput} need input, ${r.failed} failed; ${r.closed} skipped as closed`,
   );
 });
 
 registerCommand("serve", async (ctx, args) => {
   const { values } = parseArgs({
     args,
-    options: { port: { type: "string" }, auto: { type: "boolean" }, batch: { type: "boolean" } },
+    options: {
+      port: { type: "string" },
+      auto: { type: "boolean" },
+      batch: { type: "boolean" },
+      "no-open-check": { type: "boolean" },
+    },
     strict: false,
   });
   const port = Number(values.port ?? DEFAULT_PORT);
@@ -64,6 +82,7 @@ registerCommand("serve", async (ctx, args) => {
     uiDir,
     allowedHosts: [`${HOST}:${port}`, `localhost:${port}`],
     llm: ctx.llm,
+    liveness: values["no-open-check"] ? null : makeLivenessCheck(fetch),
   });
   await app.listen({ host: HOST, port });
   console.log(
@@ -215,4 +234,60 @@ registerCommand("email-sync", async (ctx, args) => {
     `${r.read} emails read, ${r.matched} matched an application, ${r.updated.length} status change(s)${values["dry-run"] ? " (dry run)" : ""}`,
   );
   for (const u of r.updated) console.log(`  ${u.company}: ${u.from} → ${u.to}  ("${u.subject}")`);
+});
+
+registerCommand("check-open", async (ctx, args) => {
+  const { values, positionals } = parseArgs({
+    args,
+    options: { limit: { type: "string" } },
+    allowPositionals: true,
+    strict: false,
+  });
+  const { finalizePosting, parseAtsUrl } = await import("@ia/core");
+  const { ensureOpen } = await import("./liveness.ts");
+  const check = makeLivenessCheck(fetch);
+  const show = (verdict: string, label: string, reason: string) =>
+    console.log(`${verdict.padEnd(10)}${label}\n          ${reason}`);
+  if (positionals.length) {
+    // Ad-hoc URLs: report only. A URL that matches a stored posting is recorded too.
+    for (const url of positionals) {
+      const ref = parseAtsUrl(url);
+      const draft = finalizePosting(
+        {
+          company: "",
+          title: "",
+          locations: [],
+          ats: ref.ats,
+          boardToken: ref.boardToken,
+          atsJobId: ref.jobId,
+          applyUrl: url,
+          sourceLinks: [],
+          sources: ["manual"],
+          descriptionText: null,
+          terms: [],
+          category: null,
+          degrees: [],
+          sponsorship: "unknown",
+          deadline: null,
+          postedAt: null,
+          isOpen: true,
+        },
+        new Date().toISOString(),
+      );
+      const stored = ctx.store.getPosting(draft.id);
+      const r = stored ? await ensureOpen(ctx.store, stored, check, 0) : await check(draft);
+      show(r.verdict, url, `${r.code} (${r.via}): ${r.reason}`);
+    }
+    return;
+  }
+  const limit = Number(values.limit ?? 25);
+  const counts = { active: 0, expired: 0, uncertain: 0 };
+  for (const { posting } of ctx.store.rankedCandidates(limit)) {
+    const r = await ensureOpen(ctx.store, posting, check, 0);
+    counts[r.verdict]++;
+    show(r.verdict, `${posting.company}: ${posting.title}`, `${r.code} (${r.via}): ${r.reason}`);
+  }
+  console.log(
+    `\n${counts.active} open, ${counts.expired} closed (recorded, won't come back), ${counts.uncertain} unclear (kept)`,
+  );
 });

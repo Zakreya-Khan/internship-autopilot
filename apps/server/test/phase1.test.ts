@@ -305,6 +305,7 @@ describe("API", () => {
     expect((await call("POST", "/api/session/next", {})).json()).toEqual({
       done: true,
       remaining: 0,
+      closed: [],
     });
 
     const outcome = await call("POST", `/api/applications/${id}/status`, { to: "interview" });

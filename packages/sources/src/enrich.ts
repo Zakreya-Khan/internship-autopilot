@@ -3,15 +3,25 @@ import { fetchGreenhouseDetail } from "./greenhouse.ts";
 import type { GetJsonOptions } from "./http.ts";
 import { getJson } from "./http.ts";
 import { fetchLeverPosting } from "./lever.ts";
+import { fetchSmartRecruitersDetail } from "./smartrecruiters.ts";
+import { fetchWorkdayDetail, workdayDetailUrl } from "./workday.ts";
 
 export interface PostingDetail {
   descriptionText: string | null;
   questions: FormQuestion[] | null;
   deadline: string | null;
+  /** Only when the list call couldn't give them (Workday's "3 Locations"). */
+  locations?: string[];
 }
 
-export function canEnrich(p: Pick<Posting, "ats" | "boardToken" | "atsJobId">): boolean {
-  return ["greenhouse", "lever", "ashby"].includes(p.ats) && Boolean(p.boardToken && p.atsJobId);
+type DetailRef = Pick<Posting, "ats" | "boardToken" | "atsJobId"> & { applyUrl?: string };
+
+export function canEnrich(p: DetailRef): boolean {
+  if (p.ats === "workday") return Boolean(p.applyUrl && workdayDetailUrl(p.applyUrl));
+  return (
+    ["greenhouse", "lever", "ashby", "smartrecruiters"].includes(p.ats) &&
+    Boolean(p.boardToken && p.atsJobId)
+  );
 }
 
 /**
@@ -19,17 +29,32 @@ export function canEnrich(p: Pick<Posting, "ats" | "boardToken" | "atsJobId">): 
  * public API. Ashby has no single-job endpoint, so one board read serves every job on it.
  */
 export async function fetchPostingDetail(
-  p: Pick<Posting, "ats" | "boardToken" | "atsJobId">,
+  p: DetailRef,
   opts: GetJsonOptions,
   ashbyCache = new Map<string, Promise<{ jobs: { id: string; descriptionPlain?: string }[] }>>(),
 ): Promise<PostingDetail | null> {
   if (!canEnrich(p)) return null;
+  if (p.ats === "workday") {
+    const d = await fetchWorkdayDetail(p.applyUrl!, opts);
+    return d
+      ? {
+          descriptionText: d.descriptionText,
+          questions: null,
+          deadline: d.deadline,
+          ...(d.locations.length ? { locations: d.locations } : {}),
+        }
+      : null;
+  }
   const token = p.boardToken!;
   const id = p.atsJobId!;
   if (p.ats === "greenhouse") return fetchGreenhouseDetail(token, id, opts);
   if (p.ats === "lever") {
     const d = await fetchLeverPosting(token, id, opts);
     return { ...d, questions: null, deadline: null };
+  }
+  if (p.ats === "smartrecruiters") {
+    const d = await fetchSmartRecruitersDetail(token, id, opts);
+    return { descriptionText: d.descriptionText, questions: null, deadline: null };
   }
   let board = ashbyCache.get(token);
   if (!board) {

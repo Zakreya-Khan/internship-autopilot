@@ -41,6 +41,20 @@ function harness(queue: number[]) {
 }
 
 describe("SessionController", () => {
+  it("shows postings the server skipped because they closed after approval", async () => {
+    const { c, api } = harness([2]);
+    vi.mocked(api.next).mockResolvedValueOnce({
+      done: false,
+      remaining: 1,
+      application: app(2),
+      closed: [{ id: 1, company: "Gone Co", title: "Intern 1", reason: "HTTP 404" }],
+    });
+    await c.start();
+    expect(c.get()).toMatchObject({ phase: "filling", application: { id: 2 } });
+    expect(c.get().closedSkipped.map((x) => x.company)).toEqual(["Gone Co"]);
+    expect(c.get().message).toContain("Skipped 1 that closed");
+  });
+
   it("fills, waits for you, and advances only after the confirmation page", async () => {
     const { c, calls, openTab } = harness([1, 2]);
     await c.start();

@@ -7,8 +7,9 @@ export class HttpError extends Error {
   constructor(
     readonly url: string,
     readonly status: number,
+    method = "GET",
   ) {
-    super(`GET ${url} failed with HTTP ${status}`);
+    super(`${method} ${url} failed with HTTP ${status}`);
   }
 }
 
@@ -46,6 +47,16 @@ export interface GetJsonOptions {
 
 /** GET JSON with a timeout and retries on 429 / 5xx / network errors, with exponential backoff. */
 export async function getJson<T>(url: string, opts: GetJsonOptions): Promise<T> {
+  return requestJson<T>(url, opts);
+}
+
+/** POST a JSON body and read JSON back, with the same spacing, timeout and retries as getJson. */
+export async function postJson<T>(url: string, body: unknown, opts: GetJsonOptions): Promise<T> {
+  return requestJson<T>(url, opts, body);
+}
+
+async function requestJson<T>(url: string, opts: GetJsonOptions, body?: unknown): Promise<T> {
+  const method = body === undefined ? "GET" : "POST";
   const retries = opts.retries ?? 3;
   const wait = opts.wait ?? sleep;
   let lastError: unknown;
@@ -53,12 +64,18 @@ export async function getJson<T>(url: string, opts: GetJsonOptions): Promise<T> 
     await opts.limiter?.acquire(url);
     try {
       const res = await opts.fetch(url, {
-        headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+        method,
+        headers: {
+          "User-Agent": USER_AGENT,
+          Accept: "application/json",
+          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: AbortSignal.timeout(opts.timeoutMs ?? 20_000),
       });
       if (res.ok) return (await res.json()) as T;
-      if (res.status !== 429 && res.status < 500) throw new HttpError(url, res.status);
-      lastError = new HttpError(url, res.status);
+      if (res.status !== 429 && res.status < 500) throw new HttpError(url, res.status, method);
+      lastError = new HttpError(url, res.status, method);
       const retryAfter = Number(res.headers.get("retry-after"));
       if (Number.isFinite(retryAfter) && retryAfter > 0) {
         await wait(Math.min(retryAfter, 120) * 1000);

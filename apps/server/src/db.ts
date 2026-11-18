@@ -150,7 +150,26 @@ const MIGRATIONS: string[] = [
   ALTER TABLE field_fills ADD COLUMN options TEXT;
   ALTER TABLE field_fills ADD COLUMN attach TEXT;
   `,
+  `
+  CREATE TABLE liveness_checks (
+    posting_id TEXT PRIMARY KEY REFERENCES postings(id) ON DELETE CASCADE,
+    verdict TEXT NOT NULL,
+    code TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    via TEXT NOT NULL,
+    checked_at TEXT NOT NULL
+  );
+  `,
 ];
+
+export interface LivenessRow {
+  posting_id: string;
+  verdict: "active" | "expired" | "uncertain";
+  code: string;
+  reason: string;
+  via: string;
+  checked_at: string;
+}
 
 export type Row = Record<string, unknown>;
 
@@ -315,6 +334,42 @@ export class Store {
     const p = this.getPosting(id);
     if (!p) throw new Error(`No posting ${id}`);
     this.savePostings([{ ...p, questions }]);
+  }
+
+  // ---- open-posting checks ----
+  /**
+   * Record whether a posting is still open. An expired verdict also closes the posting, and
+   * sourcing keeps it closed even if a list still shows it, so it never comes back.
+   */
+  recordLiveness(
+    postingId: string,
+    r: { verdict: LivenessRow["verdict"]; code: string; reason: string; via: string },
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO liveness_checks (posting_id, verdict, code, reason, via, checked_at) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(posting_id) DO UPDATE SET verdict = excluded.verdict, code = excluded.code,
+          reason = excluded.reason, via = excluded.via, checked_at = excluded.checked_at`,
+      )
+      .run(postingId, r.verdict, r.code, r.reason, r.via, this.now());
+    if (r.verdict === "expired") {
+      const p = this.getPosting(postingId);
+      if (p?.isOpen) this.savePostings([{ ...p, isOpen: false }]);
+    }
+  }
+
+  getLiveness(postingId: string): LivenessRow | null {
+    return (
+      (this.db.prepare("SELECT * FROM liveness_checks WHERE posting_id = ?").get(postingId) as
+        LivenessRow | undefined) ?? null
+    );
+  }
+
+  expiredPostingIds(): Set<string> {
+    const rows = this.db
+      .prepare("SELECT posting_id FROM liveness_checks WHERE verdict = 'expired'")
+      .all() as { posting_id: string }[];
+    return new Set(rows.map((r) => r.posting_id));
   }
 
   // ---- scores ----

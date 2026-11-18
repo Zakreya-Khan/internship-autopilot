@@ -36,11 +36,30 @@ export const ROLE_FAMILIES = ["swe", "data_ml", "pm", "quant", "hardware", "othe
 export const RoleFamily = z.enum(ROLE_FAMILIES);
 export type RoleFamily = z.infer<typeof RoleFamily>;
 
-export const WatchlistEntry = z.object({
-  company: z.string(),
-  ats: z.enum(["greenhouse", "lever", "ashby"]),
-  token: z.string(),
-});
+/**
+ * A board to poll. Greenhouse, Lever, Ashby and SmartRecruiters take the board `token` (the
+ * company's slug in its job-board URL). Workday takes the careers-site `url`, e.g.
+ * https://example.wd5.myworkdayjobs.com/External.
+ */
+export const WatchlistEntry = z
+  .object({
+    company: z.string(),
+    ats: z.enum(["greenhouse", "lever", "ashby", "workday", "smartrecruiters"]),
+    token: z.string().default(""),
+    url: z.string().nullable().default(null),
+  })
+  .superRefine((w, ctx) => {
+    if (w.ats === "workday") {
+      if (!w.url || !/\.(myworkdayjobs|myworkdaysite)\.com\//i.test(w.url))
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "a Workday board needs url: its careers site, like https://example.wd5.myworkdayjobs.com/External",
+        });
+    } else if (!w.token) {
+      ctx.addIssue({ code: "custom", message: `a ${w.ats} board needs token: its board slug` });
+    }
+  });
 export type WatchlistEntry = z.infer<typeof WatchlistEntry>;
 
 const EeoChoice = z.string().default("decline");
@@ -103,8 +122,17 @@ export const ProfileSchema = z.object({
     .object({
       voice: z.string().default("plain, specific, no buzzwords"),
       cover_letter_words: z.tuple([z.number(), z.number()]).default([250, 350]),
+      /**
+       * Files or folders (.txt/.md) of your own writing, relative to profile.yaml. Only numbers
+       * measured from them (sentence length, contractions...) reach the model; never the text.
+       */
+      writing_samples: z.array(z.string()).default([]),
     })
-    .default({ voice: "plain, specific, no buzzwords", cover_letter_words: [250, 350] }),
+    .default({
+      voice: "plain, specific, no buzzwords",
+      cover_letter_words: [250, 350],
+      writing_samples: [],
+    }),
   preferences: z
     .object({
       terms: z.array(z.string()).default(["Summer 2027"]),

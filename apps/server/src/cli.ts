@@ -22,11 +22,15 @@ Phase 0
   refresh              source + score + enrich + score
   list [--tier A|B|C] [--limit N]
                        Show ranked candidates
+  check-open [URL ...] [--limit N]
+                       Ask each job board whether postings are still open (top N candidates, or
+                       the URLs given). Closed ones are recorded and never come back.
   cost                 Model spend so far, by purpose
 Phase 1
-  prep [--limit N] [--tier A,B] [--sonnet]
-                       Tailor, truth-check and plan the best unprepared postings
-  serve [--port N] [--auto] [--batch]
+  prep [--limit N] [--tier A,B] [--sonnet] [--no-open-check]
+                       Tailor, truth-check and plan the best unprepared postings. Each posting is
+                       checked still open first; closed ones are skipped before any model call.
+  serve [--port N] [--auto] [--batch] [--no-open-check]
                        Review UI + extension API on 127.0.0.1 (--auto: refresh + prep every 6 h;
                        --batch: Tier B drafting through the Batch API)
 Phase 2

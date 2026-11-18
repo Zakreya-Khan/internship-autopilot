@@ -1,4 +1,5 @@
-import type { FormQuestion, Posting, Profile, ResumePlan, Tier } from "@ia/core";
+import type { FormQuestion, Posting, Profile, ResumePlan, Tier, VoiceTraits } from "@ia/core";
+import { voicePrompt, writingRulesPrompt } from "@ia/core";
 import { z } from "zod";
 import type { Effort, LlmClient, LlmRequest, ModelId } from "./client.ts";
 import { MODELS } from "./client.ts";
@@ -50,6 +51,10 @@ export interface DraftRequest {
   coverLetter: boolean;
   /** Tier B drafting model. Defaults to Opus; Sonnet only if the user opts in. */
   model?: ModelId;
+  /** Numbers measured from your writing samples; shapes cover letters and answers only. */
+  voice?: VoiceTraits | null;
+  /** Writing-rule problems in the previous draft, for a redraft. */
+  revisionNotes?: string[];
 }
 
 export interface Draft {
@@ -60,7 +65,7 @@ export interface Draft {
 }
 
 /** Frozen per profile, so it is cached across every posting drafted with it. */
-export function draftSystemPrompt(profile: Profile): string {
+export function draftSystemPrompt(profile: Profile, voice: VoiceTraits | null = null): string {
   const entries = [...profile.experience, ...profile.projects]
     .map((e) => `- ${e.id}: facts ${e.facts.map((f) => f.id).join(", ")}`)
     .join("\n");
@@ -79,6 +84,10 @@ Rules, in order of importance:
 7. Respect each question's character limit.
 8. Cover letter, when asked: ${minW} to ${maxW} words, 3 or 4 paragraphs, no greeting or sign-off lines.
 Voice: ${profile.style.voice}.
+
+${writingRulesPrompt()}
+
+${voicePrompt(voice)}
 
 Entries and their fact ids:
 ${entries}
@@ -106,7 +115,14 @@ ${(req.posting.descriptionText ?? "(no description available; tailor to the titl
 Open questions to answer:
 ${qs}
 
-Cover letter wanted: ${req.coverLetter ? "yes" : "no"}`;
+Cover letter wanted: ${req.coverLetter ? "yes" : "no"}${
+    req.revisionNotes?.length
+      ? `
+
+Your previous draft broke these writing rules. Write the whole draft again without them, keeping every fact and citation:
+${req.revisionNotes.map((n) => `- ${n}`).join("\n")}`
+      : ""
+  }`;
 }
 
 export function effortFor(tier: Tier): Effort {
@@ -120,7 +136,7 @@ export function draftLlmRequest(req: DraftRequest): LlmRequest<DraftOutput> {
     model: req.model ?? MODELS.opus,
     effort: effortFor(req.tier),
     maxTokens: 16000,
-    system: draftSystemPrompt(req.profile),
+    system: draftSystemPrompt(req.profile, req.voice ?? null),
     user: draftUserPrompt(req),
     schema: DraftSchema,
   };

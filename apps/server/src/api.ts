@@ -18,6 +18,8 @@ import { renderCoverLetterPdf } from "@ia/render";
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ApplicationRow, FieldFillRow, Store } from "./db.ts";
+import type { LivenessCheck } from "./liveness.ts";
+import { ensureOpen, SESSION_RECHECK_MS } from "./liveness.ts";
 import { resumePathFor } from "./prep.ts";
 
 export interface ServerDeps {
@@ -32,6 +34,8 @@ export interface ServerDeps {
   allowedHosts: string[];
   /** Only used to match fields on pages no adapter knows. Null: rules only. */
   llm?: LlmClient | null;
+  /** Rechecks that an approved posting is still open before the session opens it. */
+  liveness?: LivenessCheck | null;
   logger?: boolean;
 }
 
@@ -291,8 +295,29 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
         (x, y) =>
           (x.p.deadline ?? "9999").localeCompare(y.p.deadline ?? "9999") || y.score - x.score,
       );
-    const next = approved[0];
-    if (!next) return { done: true, remaining: 0 };
+    // A posting can close between approval and the session. Check before opening it; skip and
+    // report the ones that closed. An uncertain answer keeps the application.
+    const closed: { id: number; company: string; title: string; reason: string }[] = [];
+    let next: (typeof approved)[number] | undefined;
+    for (const cand of approved) {
+      if (deps.liveness) {
+        const r = await ensureOpen(store, cand.p, deps.liveness, SESSION_RECHECK_MS);
+        if (r.verdict === "expired") {
+          store.setStatus(cand.a.id, "skipped");
+          store.logEvent(cand.a.id, "posting_closed", { code: r.code, reason: r.reason });
+          closed.push({
+            id: cand.a.id,
+            company: cand.p.company,
+            title: cand.p.title,
+            reason: r.reason,
+          });
+          continue;
+        }
+      }
+      next = cand;
+      break;
+    }
+    if (!next) return { done: true, remaining: 0, closed };
     const files: Record<string, { name: string; base64: string }> = {};
     for (const kind of ["resume", "cover_letter"] as const) {
       const path = resumePathFor(deps.outDir, next.a.id, kind);
@@ -304,7 +329,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     }
     return {
       done: false,
-      remaining: approved.length,
+      remaining: approved.length - closed.length,
+      closed,
       application: {
         id: next.a.id,
         applyUrl: next.p.applyUrl,

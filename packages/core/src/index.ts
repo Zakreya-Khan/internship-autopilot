@@ -16,3 +16,5 @@ export * from "./status.ts";
 export * from "./text.ts";
 export * from "./truth.ts";
 export * from "./types.ts";
+export * from "./writing.ts";
+export * from "./voice.ts";
