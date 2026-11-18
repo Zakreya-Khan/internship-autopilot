@@ -50,7 +50,15 @@ export class TruncatedError extends Error {
   }
 }
 
-export type UsageSink = (entry: { purpose: string; model: string; usage: TokenUsage }) => void;
+export type UsageSink = (entry: {
+  purpose: string;
+  model: string;
+  usage: TokenUsage;
+  /** "cli" when the call ran through the Claude CLI on the user's subscription. Default "api". */
+  provider?: "api" | "cli";
+  /** The cost the CLI reported for this call, an estimate (the subscription covers it). */
+  reportedUsd?: number;
+}) => void;
 
 /** Models that accept server-side fallback on refusals. Haiku has none. */
 function supportsFallback(model: ModelId): boolean {
@@ -86,6 +94,11 @@ export function parseMessage<T>(
     .map((b) => b.text ?? "")
     .join("");
   return schema.parse(JSON.parse(text));
+}
+
+/** A key to use instead of the environment's, e.g. one saved from the review UI. */
+export function anthropicClient(apiKey?: string | null): Anthropic {
+  return apiKey ? new Anthropic({ apiKey }) : new Anthropic();
 }
 
 export class AnthropicLlm implements LlmClient {

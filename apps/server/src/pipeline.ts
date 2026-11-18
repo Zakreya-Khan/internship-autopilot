@@ -11,7 +11,7 @@ import {
   upsertAll,
 } from "@ia/core";
 import type { LlmClient } from "@ia/ai";
-import { matchRequirements, profileForModel } from "@ia/ai";
+import { matchRequirements, profileForModel, UsageLimitError } from "@ia/ai";
 import type { FetchFn } from "@ia/sources";
 import { canEnrich, fetchPostingDetail, HostRateLimiter, pollSources } from "@ia/sources";
 import type { Store } from "./db.ts";
@@ -116,6 +116,8 @@ export async function runScoring(
   // so changing them re-scores without a model call.
   const profileHash = shortHash(profileForModel(profile));
   const report: ScoringReport = { considered: 0, passed: 0, dropped: 0, modelCalls: 0, reused: 0 };
+  // Once the subscription's usage limit is hit, the rest use keywords (upgraded on a later run).
+  let limited = false;
   await mapLimit(store.openPostings(), opts.concurrency ?? 4, async (posting) => {
     report.considered++;
     const hash = shortHash(
@@ -137,12 +139,17 @@ export async function runScoring(
     if (prev?.fit && prev.input_hash === hash && !upgrade) {
       match = prev.fit.match;
       report.reused++;
-    } else if (llm && posting.descriptionText) {
+    } else if (llm && posting.descriptionText && !limited) {
       try {
         match = await matchRequirements(llm, posting, profile);
         report.modelCalls++;
       } catch (e) {
-        deps.log?.(`requirement match failed for ${posting.id}, using keywords: ${String(e)}`);
+        if (e instanceof UsageLimitError) {
+          if (!limited) deps.log?.(`${e.message} Using keyword matches for the rest of this run.`);
+          limited = true;
+        } else {
+          deps.log?.(`requirement match failed for ${posting.id}, using keywords: ${String(e)}`);
+        }
         match = keywordRequirementMatch(posting, profile);
       }
     } else {

@@ -14,6 +14,7 @@ import { runEnrichment, runScoring, runSourcing } from "./pipeline.ts";
 import { makeLivenessCheck } from "./liveness.ts";
 import type { PrepDeps } from "./prep.ts";
 import { runPrep } from "./prep.ts";
+import { buildLlm } from "./provider.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const UI_DIST = resolve(here, "../../ui/dist");
@@ -44,9 +45,7 @@ registerCommand("prep", async (ctx, args) => {
     strict: false,
   });
   if (!ctx.llm)
-    console.log(
-      "No Claude credentials (or --offline): base resume only, open questions left for you.",
-    );
+    console.log(`No Claude (${ctx.llmReason}): base resume only, open questions left for you.`);
   const tiers = values.tier ? (String(values.tier).split(",") as Tier[]) : undefined;
   const r = await runPrep(
     prepDeps(ctx, {
@@ -58,7 +57,15 @@ registerCommand("prep", async (ctx, args) => {
   console.log(
     `prepared ${r.prepared}: ${r.ready} ready, ${r.needsInput} need input, ${r.failed} failed; ${r.closed} skipped as closed`,
   );
+  if (r.paused)
+    console.log(
+      "Paused at your Claude subscription's usage limit. Run prep again after it resets; unfinished applications go first.",
+    );
 });
+
+/** The Message Batches API needs an API key; through the CLI, Tier B is drafted one at a time. */
+export const CLI_NO_BATCH =
+  "The Claude CLI has no Batch API, so Tier B drafts are prepared one at a time instead (prep does this). Switch to the API key in Settings for half-price batches.";
 
 registerCommand("serve", async (ctx, args) => {
   const { values } = parseArgs({
@@ -82,6 +89,15 @@ registerCommand("serve", async (ctx, args) => {
     uiDir,
     allowedHosts: [`${HOST}:${port}`, `localhost:${port}`],
     llm: ctx.llm,
+    paths: ctx.paths,
+    // A provider change in Settings takes effect at once, for the UI and the auto cycle.
+    reloadLlm: () => {
+      const next = buildLlm({ store: ctx.store, paths: ctx.paths });
+      ctx.llm = next.llm;
+      ctx.provider = next.provider;
+      ctx.llmReason = next.reason;
+      return next.llm;
+    },
     coverBase: ctx.coverBase,
     liveness: values["no-open-check"] ? null : makeLivenessCheck(fetch),
   });
@@ -97,7 +113,10 @@ registerCommand("serve", async (ctx, args) => {
         await runScoring(deps);
         await runEnrichment(deps);
         await runScoring(deps);
-        if (values.batch && ctx.llm) {
+        if (values.batch && ctx.llm && ctx.provider === "cli") {
+          console.log(CLI_NO_BATCH);
+          await runPrep(deps, { limit: 25 });
+        } else if (values.batch && ctx.llm) {
           // Tier A live at high effort; Tier B overnight through the Batch API at half price.
           const { AnthropicBatchClient } = await import("@ia/ai");
           const { collectPrepBatches, submitPrepBatch } = await import("./batch.ts");
@@ -125,7 +144,11 @@ registerCommand("serve", async (ctx, args) => {
 
 registerCommand("batch", async (ctx, args) => {
   const [sub, ...rest] = args;
-  if (!ctx.llm) throw new Error("The Batch API needs Claude credentials (ANTHROPIC_API_KEY).");
+  if (ctx.provider === "cli") {
+    console.log(CLI_NO_BATCH);
+    return;
+  }
+  if (!ctx.llm) throw new Error(`The Batch API needs an Anthropic API key (${ctx.llmReason}).`);
   const { AnthropicBatchClient } = await import("@ia/ai");
   const { collectPrepBatches, submitPrepBatch } = await import("./batch.ts");
   const client = new AnthropicBatchClient();
@@ -302,7 +325,7 @@ registerCommand("stories", async (ctx, args) => {
     const { draftStories } = await import("@ia/ai");
     stories = await draftStories(ctx.llm, ctx.profile, Number(values.count ?? 8));
   } else {
-    console.log("No Claude credentials (or --offline): one story per entry, in your own words.");
+    console.log(`No Claude (${ctx.llmReason}): one story per entry, in your own words.`);
     stories = storiesFromFacts(ctx.profile);
   }
   const issues = stories.flatMap((s) => checkStory(ctx.profile, s));
@@ -332,7 +355,7 @@ registerCommand("outreach", async (ctx, args) => {
     ctx.store.getPosting(ref) ?? ctx.store.allPostings().find((p) => p.applyUrl === ref) ?? null;
   if (!posting)
     throw new Error(`No stored posting matches "${ref}". Use an id from the review UI.`);
-  if (!ctx.llm) throw new Error("Outreach drafts need Claude credentials (ANTHROPIC_API_KEY).");
+  if (!ctx.llm) throw new Error(`Outreach drafts need Claude (${ctx.llmReason}).`);
   const { draftOutreach, OUTREACH_MAX_CHARS } = await import("@ia/ai");
   const { checkClaims, checkWriting, profileOwnWords } = await import("@ia/core");
   const d = await draftOutreach(ctx.llm, ctx.profile, posting, kind);

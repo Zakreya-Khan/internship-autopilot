@@ -160,6 +160,9 @@ const MIGRATIONS: string[] = [
     checked_at TEXT NOT NULL
   );
   `,
+  `
+  ALTER TABLE llm_calls ADD COLUMN provider TEXT NOT NULL DEFAULT 'api';
+  `,
 ];
 
 export interface LivenessRow {
@@ -751,10 +754,25 @@ export class Store {
     }));
   }
 
-  logLlmCall(purpose: string, model: string, usage: TokenUsage, batch = false): void {
+  /**
+   * One model call. Through the Claude CLI ("cli") the subscription covers it, so its cost is an
+   * estimate: what the CLI reported, or else what the API would have charged.
+   */
+  logLlmCall(
+    purpose: string,
+    model: string,
+    usage: TokenUsage,
+    batch = false,
+    via: { provider?: "api" | "cli"; reportedUsd?: number } = {},
+  ): void {
+    const provider = via.provider ?? "api";
+    const usd =
+      provider === "cli" && via.reportedUsd !== undefined
+        ? via.reportedUsd
+        : costUsd(model, usage, { batch });
     this.db
       .prepare(
-        "INSERT INTO llm_calls (purpose, model, input_tokens, cached_tokens, cache_write_tokens, output_tokens, cost_usd, batch, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO llm_calls (purpose, model, input_tokens, cached_tokens, cache_write_tokens, output_tokens, cost_usd, batch, at, provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         purpose,
@@ -763,19 +781,22 @@ export class Store {
         usage.cache_read_input_tokens ?? 0,
         usage.cache_creation_input_tokens ?? 0,
         usage.output_tokens,
-        costUsd(model, usage, { batch }),
+        usd,
         batch ? 1 : 0,
         this.now(),
+        provider,
       );
   }
 
-  costSummary(): { purpose: string; calls: number; usd: number }[] {
+  /** Spend by purpose and provider. "cli" rows are estimates the subscription covers. */
+  costSummary(): { purpose: string; provider: "api" | "cli"; calls: number; usd: number }[] {
     return this.db
       .prepare(
-        "SELECT purpose, COUNT(*) AS calls, ROUND(SUM(cost_usd), 4) AS usd FROM llm_calls GROUP BY purpose ORDER BY usd DESC",
+        "SELECT purpose, provider, COUNT(*) AS calls, ROUND(SUM(cost_usd), 4) AS usd FROM llm_calls GROUP BY purpose, provider ORDER BY provider, usd DESC",
       )
       .all() as unknown as {
       purpose: string;
+      provider: "api" | "cli";
       calls: number;
       usd: number;
     }[];

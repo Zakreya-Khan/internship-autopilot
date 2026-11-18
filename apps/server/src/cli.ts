@@ -5,6 +5,8 @@ import { resolvePaths } from "./config.ts";
 import type { AppContext } from "./context.ts";
 import { ensureToken, openContext } from "./context.ts";
 import { Store } from "./db.ts";
+import type { Provider } from "./provider.ts";
+import { isProvider, PROVIDER_LABELS } from "./provider.ts";
 import { runEnrichment, runScoring, runSourcing } from "./pipeline.ts";
 
 type Command = (ctx: AppContext, args: string[]) => Promise<void>;
@@ -48,7 +50,9 @@ Phase 3
   email-sync <mbox|folder> [--dry-run]
                        Update statuses from an email export (local only, rule-based)
 Options
-  --offline            Never call the Claude API (keyword scoring, no drafting)
+  --offline            Never call Claude (keyword scoring, no drafting)
+  --provider api|cli   How to reach Claude for this run: your Anthropic API key, or the Claude
+                       CLI on your subscription. Default: the choice saved in Settings (api).
 `;
 
 function pad(s: string, n: number): string {
@@ -64,7 +68,7 @@ const commands: Record<string, Command> = {
     for (const e of r.errors) console.warn(`  ! ${e}`);
   },
   async score(ctx) {
-    if (!ctx.llm) console.log("No Claude credentials (or --offline): using keyword scoring.");
+    if (!ctx.llm) console.log(`No Claude (${ctx.llmReason}): using keyword scoring.`);
     const r = await runScoring({ ...ctx, fetch, log: console.warn });
     console.log(
       `considered ${r.considered}: passed ${r.passed}, dropped ${r.dropped}; model calls ${r.modelCalls}, reused ${r.reused}`,
@@ -103,9 +107,19 @@ const commands: Record<string, Command> = {
   async cost(ctx) {
     const rows = ctx.store.costSummary();
     if (!rows.length) return console.log("No model calls logged yet.");
-    for (const r of rows)
-      console.log(`${pad(r.purpose, 16)}${pad(String(r.calls), 8)}$${r.usd.toFixed(2)}`);
-    console.log(`total $${rows.reduce((a, r) => a + r.usd, 0).toFixed(2)}`);
+    for (const provider of ["api", "cli"] as const) {
+      const mine = rows.filter((r) => r.provider === provider);
+      if (!mine.length) continue;
+      console.log(
+        provider === "api"
+          ? "Anthropic API (billed to your key)"
+          : "Claude CLI (covered by your subscription; amounts are estimates)",
+      );
+      for (const r of mine)
+        console.log(`  ${pad(r.purpose, 16)}${pad(String(r.calls), 8)}$${r.usd.toFixed(2)}`);
+      const total = mine.reduce((a, r) => a + r.usd, 0).toFixed(2);
+      console.log(provider === "api" ? `  total $${total}` : `  estimated $${total}, not billed`);
+    }
   },
 };
 
@@ -130,6 +144,24 @@ function init(): void {
   console.log(`Extension token (paste into the extension's options page): ${token}`);
 }
 
+/** Pull "--provider api|cli" (or "--provider=cli") out of the arguments. */
+export function takeProvider(args: string[]): { provider: Provider | null; args: string[] } {
+  let provider: Provider | null = null;
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    const value =
+      a === "--provider" ? (args[++i] ?? "") : a.startsWith("--provider=") ? a.slice(11) : null;
+    if (value === null) {
+      out.push(a);
+      continue;
+    }
+    if (!isProvider(value)) throw new Error(`--provider must be "api" or "cli", not "${value}"`);
+    provider = value;
+  }
+  return { provider, args: out };
+}
+
 export async function main(argv: string[]): Promise<number> {
   await import("./commands.ts");
   const [name, ...rest] = argv;
@@ -146,11 +178,13 @@ export async function main(argv: string[]): Promise<number> {
     console.error(`Unknown command "${name}".\n\n${HELP}`);
     return 1;
   }
-  const ctx = openContext({ offline: rest.includes("--offline") });
+  const { provider, args } = takeProvider(rest);
+  const ctx = openContext({ offline: args.includes("--offline"), provider });
+  if (provider) console.log(`Using ${PROVIDER_LABELS[provider]} for this run.`);
   try {
     await cmd(
       ctx,
-      rest.filter((a) => a !== "--offline"),
+      args.filter((a) => a !== "--offline"),
     );
     return 0;
   } finally {
