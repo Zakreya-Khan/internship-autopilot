@@ -57,9 +57,9 @@ registerCommand("prep", async (ctx, args) => {
   console.log(
     `prepared ${r.prepared}: ${r.ready} ready, ${r.needsInput} need input, ${r.failed} failed; ${r.closed} skipped as closed`,
   );
-  if (r.paused)
+  if (r.stopped)
     console.log(
-      "Paused at your Claude subscription's usage limit. Run prep again after it resets; unfinished applications go first.",
+      `Stopped early: ${r.stopped}${r.paused ? " Run prep again after it resets;" : " Fix that, then run prep again;"} unfinished applications go first.`,
     );
 });
 

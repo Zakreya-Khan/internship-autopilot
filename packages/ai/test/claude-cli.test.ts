@@ -144,9 +144,10 @@ describe("ClaudeCliLlm", () => {
   });
 
   it("says when the CLI isn't signed in, or fails", async () => {
-    await expect(
-      new ClaudeCliLlm(bin, undefined, { env: env("logged-out") }).generate(req()),
-    ).rejects.toBeInstanceOf(CliUnavailableError);
+    const out = new ClaudeCliLlm(bin, undefined, { env: env("logged-out") });
+    await expect(out.generate(req())).rejects.toBeInstanceOf(CliUnavailableError);
+    await expect(out.generate(req())).rejects.toBeInstanceOf(CliUnavailableError);
+    expect(runs()).toHaveLength(1); // signed out stays signed out for this run: not asked again
     await expect(
       new ClaudeCliLlm(bin, undefined, { env: env("crash") }).generate(req()),
     ).rejects.toThrow(/boom/);

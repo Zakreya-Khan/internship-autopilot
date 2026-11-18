@@ -136,7 +136,12 @@ describe("usage limit", () => {
     );
     await runScoring({ ...d, llm: null });
     const r = await runPrep(d, { limit: 3 });
-    expect(r).toMatchObject({ prepared: 0, failed: 0, paused: true });
+    expect(r).toMatchObject({
+      prepared: 0,
+      failed: 0,
+      paused: true,
+      stopped: expect.stringMatching(/usage limit/),
+    });
     expect(calls).toBe(1);
     // The unfinished application is kept for the next run.
     expect(store.listApplications().map((a) => a.status)).toEqual(["prepared"]);

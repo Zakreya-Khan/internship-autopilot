@@ -43,6 +43,11 @@ export class UsageLimitError extends Error {
 /** The CLI isn't installed, or isn't signed in. */
 export class CliUnavailableError extends Error {}
 
+/** Errors that end a run: asking again for the next posting would fail the same way. */
+export function stopsTheRun(e: unknown): e is UsageLimitError | CliUnavailableError {
+  return e instanceof UsageLimitError || e instanceof CliUnavailableError;
+}
+
 const USAGE_LIMIT =
   /usage limit|limit reached|hit your limit|out of (extra )?usage|rate.?limit|resets? (at|in)\b/i;
 const NOT_SIGNED_IN = /not logged in|please run \/login|invalid api key|authenticat|oauth/i;
@@ -175,8 +180,11 @@ export function cliError(message: string): Error {
 }
 
 export class ClaudeCliLlm implements LlmClient {
-  /** Set once the usage limit is hit: every later call fails at once, without running the CLI. */
-  private limited: UsageLimitError | null = null;
+  /**
+   * Set once the usage limit is hit or the CLI turns out missing or signed out: every later call
+   * fails at once, without running the CLI again.
+   */
+  private limited: UsageLimitError | CliUnavailableError | null = null;
 
   constructor(
     readonly bin: string,
@@ -190,7 +198,12 @@ export class ClaudeCliLlm implements LlmClient {
     let lastProblem = "";
     // One retry when the answer doesn't match the schema; errors from the CLI are never retried.
     for (let attempt = 0; attempt < 2; attempt++) {
-      const run = await runClaude(this.bin, args, { stdin: req.user, ...this.opts });
+      let run: RunResult;
+      try {
+        run = await runClaude(this.bin, args, { stdin: req.user, ...this.opts });
+      } catch (e) {
+        throw this.remember(e instanceof Error ? e : new Error(String(e)));
+      }
       let out: CliJson;
       try {
         out = JSON.parse(run.stdout) as CliJson;
@@ -225,7 +238,7 @@ export class ClaudeCliLlm implements LlmClient {
   }
 
   private remember(e: Error): Error {
-    if (e instanceof UsageLimitError) this.limited = e;
+    if (stopsTheRun(e)) this.limited = e;
     return e;
   }
 }
