@@ -11,7 +11,7 @@ import type {
   Profile,
 } from "@ia/core";
 import type { LlmClient } from "@ia/ai";
-import { mapFieldsWithModel } from "@ia/ai";
+import { mapFieldsWithModel, testConnection } from "@ia/ai";
 import {
   hasBlockingFlags,
   isSubmittedOrLater,
@@ -24,7 +24,17 @@ import {
 import { renderCoverLetterPdf } from "@ia/render";
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { Paths } from "./config.ts";
 import type { ApplicationRow, FieldFillRow, Store } from "./db.ts";
+import {
+  buildLlm,
+  forgetKey,
+  isProvider,
+  PROVIDER_LABELS,
+  providerStatus,
+  saveKey,
+  saveProviderSettings,
+} from "./provider.ts";
 import type { LivenessCheck } from "./liveness.ts";
 import { ensureOpen, SESSION_RECHECK_MS } from "./liveness.ts";
 import { resumePathFor } from "./prep.ts";
@@ -42,6 +52,12 @@ export interface ServerDeps {
   allowedHosts: string[];
   /** Only used to match fields on pages no adapter knows. Null: rules only. */
   llm?: LlmClient | null;
+  /** Where data/ is. Needed for the Settings page (a pasted API key is saved there). */
+  paths?: Paths;
+  /** Rebuilds the model client after the provider or key changes in Settings. */
+  reloadLlm?: () => LlmClient | null;
+  /** Environment used for the provider status (defaults to process.env). */
+  env?: NodeJS.ProcessEnv;
   /** Your own cover letter's greeting and closing, reused when you edit a letter. */
   coverBase?: CoverLetterBase | null;
   /** Rechecks that an approved posting is still open before the session opens it. */
@@ -97,6 +113,7 @@ function fileName(name: string, kind: "resume" | "cover_letter"): string {
 
 export function buildServer(deps: ServerDeps): FastifyInstance {
   const { store, profile } = deps;
+  let llm = deps.llm ?? null;
   const app = Fastify({ logger: deps.logger ?? false, bodyLimit: 8 * 1024 * 1024 });
 
   app.addHook("onRequest", async (req: FastifyRequest, reply: FastifyReply) => {
@@ -113,6 +130,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       if (req.method === "OPTIONS") return reply.code(204).send();
     } else if (origin && !sameOrigin) {
       return reply.code(403).send({ error: "origin not allowed" });
+    }
+    // Settings (provider, API key) are only for the review UI, never the extension.
+    if (req.url.startsWith("/api/settings") && origin && !sameOrigin) {
+      return reply.code(403).send({ error: "settings are only available in the review UI" });
     }
     if (req.url.startsWith("/api/") && req.url !== "/api/health") {
       const t = req.headers["x-ia-token"];
@@ -449,6 +470,79 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   app.get("/api/cost", async () => store.costSummary());
 
+  // ---------- Settings: how to reach Claude ----------
+  const mustPaths = (): Paths => {
+    if (!deps.paths) throw new HttpProblem(501, "settings aren't available in this server");
+    return deps.paths;
+  };
+  const settingsView = async () => {
+    const status = await providerStatus(store, mustPaths(), deps.env ?? process.env);
+    const active = buildLlm({ store, paths: mustPaths(), env: deps.env ?? process.env });
+    // A CLI that's installed but signed out can't make calls either.
+    const signedOut = status.selected === "cli" && status.cli.signedIn === false;
+    return {
+      ...status,
+      labels: PROVIDER_LABELS,
+      ready: active.llm !== null && !signedOut,
+      reason: signedOut
+        ? 'the Claude CLI isn\'t signed in. Run "claude" once in a terminal and sign in.'
+        : active.reason,
+    };
+  };
+  const reload = () => {
+    llm = deps.reloadLlm ? deps.reloadLlm() : llm;
+  };
+
+  app.get("/api/settings/provider", async () => settingsView());
+
+  app.put<{ Body: { provider?: string; cliPath?: string | null } }>(
+    "/api/settings/provider",
+    async (req) => {
+      const b = req.body ?? {};
+      if (b.provider !== undefined && !isProvider(b.provider))
+        throw new HttpProblem(400, 'provider must be "api" or "cli"');
+      saveProviderSettings(store, {
+        ...(b.provider !== undefined ? { provider: b.provider } : {}),
+        ...(b.cliPath !== undefined ? { cliPath: b.cliPath } : {}),
+      });
+      reload();
+      return settingsView();
+    },
+  );
+
+  // One tiny call through the given provider (or the saved one).
+  app.post<{ Body: { provider?: string } }>("/api/settings/provider/test", async (req) => {
+    const p = req.body?.provider;
+    if (p !== undefined && !isProvider(p)) throw new HttpProblem(400, "unknown provider");
+    const choice = buildLlm({
+      store,
+      paths: mustPaths(),
+      env: deps.env ?? process.env,
+      override: p ?? null,
+    });
+    if (!choice.llm) return { ok: false, error: choice.reason };
+    return testConnection(choice.llm);
+  });
+
+  // A pasted key is written to data/ with 0600 permissions and never sent back.
+  app.put<{ Body: { key?: string } }>("/api/settings/api-key", async (req) => {
+    const key = req.body?.key;
+    if (typeof key !== "string" || !key.trim()) throw new HttpProblem(400, "no key given");
+    try {
+      saveKey(mustPaths(), key);
+    } catch (e) {
+      throw new HttpProblem(400, e instanceof Error ? e.message : "invalid key");
+    }
+    reload();
+    return settingsView();
+  });
+
+  app.delete("/api/settings/api-key", async () => {
+    forgetKey(mustPaths());
+    reload();
+    return settingsView();
+  });
+
   // ---------- Phase 3: unknown sites, export, outcomes ----------
   app.post<{ Params: { id: string }; Body: { fields: PageField[] } }>(
     "/api/applications/:id/map-fields",
@@ -464,9 +558,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
         attach: f.attach,
       }));
       const { mapped, unmatched } = mapPageFieldsByRules(page, plan, profile);
-      if (deps.llm && unmatched.length) {
+      if (llm && unmatched.length) {
         try {
-          const matches = await mapFieldsWithModel(deps.llm, unmatched, plan);
+          const matches = await mapFieldsWithModel(llm, unmatched, plan);
           const byKey = new Map(plan.map((p) => [p.key, p]));
           for (const f of unmatched) {
             const p = matches.get(f.key) ? byKey.get(matches.get(f.key)!) : undefined;

@@ -33,7 +33,7 @@ import {
   wordCount,
 } from "@ia/core";
 import type { Draft, DraftRequest } from "@ia/ai";
-import { draftApplication, MODELS, modelTruthCheck } from "@ia/ai";
+import { draftApplication, MODELS, modelTruthCheck, stopsTheRun, UsageLimitError } from "@ia/ai";
 import { parseCheckResume, renderCoverLetterPdf, renderResumePdf } from "@ia/render";
 import type { ApplicationRow, Store } from "./db.ts";
 import type { LivenessCheck } from "./liveness.ts";
@@ -258,6 +258,7 @@ export async function completePrep(
     try {
       issues.push(...(await modelTruthCheck(deps.llm, profile, claims)));
     } catch (e) {
+      if (stopsTheRun(e)) throw e;
       // A failed second pass must not wave drafts through: treat every drafted text as unchecked.
       for (const c of claims.filter((c) => !c.where.startsWith("bullet:"))) {
         issues.push({
@@ -467,8 +468,20 @@ export async function runPrep(
   needsInput: number;
   failed: number;
   closed: number;
+  /** True when the run stopped early at the subscription's usage limit. */
+  paused: boolean;
+  /** Why the run stopped early, if it did. */
+  stopped: string | null;
 }> {
-  const report = { prepared: 0, ready: 0, needsInput: 0, failed: 0, closed: 0 };
+  const report = {
+    prepared: 0,
+    ready: 0,
+    needsInput: 0,
+    failed: 0,
+    closed: 0,
+    paused: false,
+    stopped: null as string | null,
+  };
   const limit = opts.limit ?? 25;
   // Look further down the list than the limit, so closed postings don't shrink the run.
   const pool = selectForPrep(deps, { ...opts, limit: deps.liveness ? limit * 3 + 5 : limit });
@@ -484,6 +497,13 @@ export async function runPrep(
       if (r.status === "ready") report.ready++;
       else report.needsInput++;
     } catch (e) {
+      // The subscription's usage limit, or a missing or signed-out CLI: stop here instead of
+      // failing every posting in turn. Unfinished applications stay "prepared" and go first next run.
+      if (stopsTheRun(e)) {
+        report.stopped = e.message;
+        report.paused = e instanceof UsageLimitError;
+        break;
+      }
       report.failed++;
       deps.log?.(`prep failed for ${s.posting.id}: ${String(e)}`);
     }

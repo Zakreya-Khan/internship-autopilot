@@ -107,7 +107,36 @@ export interface Detail {
 
 export type TrackerRow = ApplicationRow & { posting: PostingSummary };
 
-export type Stats = OutcomeReport & { cost: { purpose: string; calls: number; usd: number }[] };
+export interface CostRow {
+  purpose: string;
+  /** "cli" rows ran on your Claude subscription: estimates, not billed. */
+  provider: "api" | "cli";
+  calls: number;
+  usd: number;
+}
+export type Stats = OutcomeReport & { cost: CostRow[] };
+
+export type Provider = "api" | "cli";
+
+export interface ProviderSettings {
+  selected: Provider;
+  cliPath: string | null;
+  labels: Record<Provider, string>;
+  /** The selected provider can make calls right now. */
+  ready: boolean;
+  reason: string | null;
+  api: { available: boolean; source: "environment" | "saved" | null; hint: string | null };
+  cli: {
+    found: boolean;
+    path: string | null;
+    version: string | null;
+    signedIn: boolean | null;
+    authMethod: string | null;
+    problem: string | null;
+  };
+}
+
+export type ConnectionTest = { ok: true; model: string; ms: number } | { ok: false; error: string };
 
 function token(): string {
   const meta = document.querySelector<HTMLMetaElement>('meta[name="ia-token"]')?.content;
@@ -165,6 +194,13 @@ export const api = {
   stats: () => call<Stats>("GET", "/api/stats"),
   qualify: (verdict: "meets" | "close") =>
     call<QualifyItem[]>("GET", `/api/qualify?verdict=${verdict}`),
+  providerSettings: () => call<ProviderSettings>("GET", "/api/settings/provider"),
+  setProvider: (body: { provider?: Provider; cliPath?: string | null }) =>
+    call<ProviderSettings>("PUT", "/api/settings/provider", body),
+  testProvider: (provider: Provider) =>
+    call<ConnectionTest>("POST", "/api/settings/provider/test", { provider }),
+  saveApiKey: (key: string) => call<ProviderSettings>("PUT", "/api/settings/api-key", { key }),
+  forgetApiKey: () => call<ProviderSettings>("DELETE", "/api/settings/api-key"),
   fileUrl: (id: number, kind: "resume" | "cover_letter") => `/api/applications/${id}/files/${kind}`,
 };
 

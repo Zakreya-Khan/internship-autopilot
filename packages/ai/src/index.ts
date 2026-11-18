@@ -8,3 +8,5 @@ export * from "./truthcheck.ts";
 export * from "./fieldmap.ts";
 export * from "./stories.ts";
 export * from "./outreach.ts";
+export * from "./claude-cli.ts";
+export * from "./ping.ts";

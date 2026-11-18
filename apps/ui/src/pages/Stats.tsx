@@ -46,14 +46,18 @@ export function Stats() {
   }, []);
 
   if (!s) return error ? <p role="alert">{error}</p> : <p>Loading…</p>;
-  const spend = s.cost.reduce((a, c) => a + c.usd, 0);
+  const spend = s.cost.filter((c) => c.provider !== "cli").reduce((a, c) => a + c.usd, 0);
+  const cliCalls = s.cost.filter((c) => c.provider === "cli").reduce((a, c) => a + c.calls, 0);
   return (
     <section>
       <h1>Outcomes</h1>
       <p className="muted">
-        {s.totals.sent ?? 0} sent · model spend so far ${spend.toFixed(2)}. Use the score bands to
-        decide whether the Tier B threshold is right: if low bands reply as often as high ones,
-        prepare more; if they don't, prepare fewer.
+        {s.totals.sent ?? 0} sent · API spend so far ${spend.toFixed(2)}
+        {cliCalls
+          ? ` · ${cliCalls} calls through the Claude CLI, covered by your subscription`
+          : ""}
+        . Use the score bands to decide whether the Tier B threshold is right: if low bands reply as
+        often as high ones, prepare more; if they don't, prepare fewer.
       </p>
       {error ? <p role="alert">{error}</p> : null}
       {s.suggestions.length ? (

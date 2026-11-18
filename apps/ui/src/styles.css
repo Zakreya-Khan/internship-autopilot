@@ -263,6 +263,12 @@ textarea {
   border-left: 3px solid var(--accent);
   padding-left: 12px;
 }
+.settings-field {
+  flex: 1 1 280px;
+}
+.settings-field input {
+  width: 100%;
+}
 
 ul.plain {
   list-style: none;

@@ -147,7 +147,9 @@ describe("Batch API prep", () => {
     expect(deps.store.getApplication(ids[0]!)!.status).toBe("ready");
     expect(deps.store.getApplication(ids[2]!)!.status).toBe("prepared");
     expect(deps.store.events(ids[2]!).map((e) => e.type)).toContain("batch_failed");
-    expect(deps.store.costSummary()).toEqual([{ purpose: "draft", calls: 2, usd: 0.142 }]);
+    expect(deps.store.costSummary()).toEqual([
+      { purpose: "draft", provider: "api", calls: 2, usd: 0.142 },
+    ]);
     // Collected batches are closed; the failed one is now eligible for a live retry.
     expect(await collectPrepBatches(deps, client)).toMatchObject({ batches: 0 });
     expect((await runPrep({ ...deps, llm: null }, { tiers: ["B"], limit: 10 })).prepared).toBe(1);

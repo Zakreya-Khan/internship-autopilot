@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { DetailPage } from "./pages/DetailPage.tsx";
 import { Qualify } from "./pages/Qualify.tsx";
 import { Queue } from "./pages/Queue.tsx";
+import { Settings } from "./pages/Settings.tsx";
 import { Stats } from "./pages/Stats.tsx";
 import { Tracker } from "./pages/Tracker.tsx";
 
@@ -10,7 +11,8 @@ type Route =
   | { page: "detail"; id: number }
   | { page: "tracker" }
   | { page: "stats" }
-  | { page: "qualify" };
+  | { page: "qualify" }
+  | { page: "settings" };
 
 export function parseRoute(hash: string): Route {
   const m = /^#\/app\/(\d+)/.exec(hash);
@@ -18,6 +20,7 @@ export function parseRoute(hash: string): Route {
   if (hash.startsWith("#/tracker")) return { page: "tracker" };
   if (hash.startsWith("#/stats")) return { page: "stats" };
   if (hash.startsWith("#/qualify")) return { page: "qualify" };
+  if (hash.startsWith("#/settings")) return { page: "settings" };
   return { page: "queue" };
 }
 
@@ -44,6 +47,9 @@ export function App() {
         <a href="#/stats" aria-current={route.page === "stats" ? "page" : undefined}>
           Stats
         </a>
+        <a href="#/settings" aria-current={route.page === "settings" ? "page" : undefined}>
+          Settings
+        </a>
         <span className="muted small">
           Nothing here submits. You press each site's Submit button.
         </span>
@@ -54,6 +60,7 @@ export function App() {
         {route.page === "tracker" ? <Tracker /> : null}
         {route.page === "stats" ? <Stats /> : null}
         {route.page === "qualify" ? <Qualify /> : null}
+        {route.page === "settings" ? <Settings /> : null}
       </main>
     </>
   );

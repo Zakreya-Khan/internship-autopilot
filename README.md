@@ -14,7 +14,7 @@ All four phases from the spec are built: sourcing and scoring, tailoring with a 
 | No fabrication                        | Every resume bullet must cite fact ids from `profile.yaml`. Code rejects uncited claims, numbers not in a verified fact, technologies not in your profile, and inflated skill levels. A separate Claude pass then checks every draft against its cited facts. A blocked bullet falls back to your own wording; a blocked answer is flagged for you. Interview stories pass a code check that every number appears in a fact they cite.                                                                                        |
 | No AI-sounding text                   | Code checks every generated text for stock AI words and phrases, em dashes and "not X but Y" constructions (`packages/core/src/writing.ts`). A draft that breaks them is redrafted once; what's left is treated like a truth-check failure. Writing samples shape only cover letters and answers, as numbers; their text is never sent or copied. With `style.resume_wording: original` your bullets are never reworded, and with `style.cover_letter_base` every cover letter is your own letter plus one checked paragraph. |
 | No wasted work on closed postings     | Before prep and before the fill session opens an approved application, each board's public API (or the page) is asked whether the posting is still open. Only a definitive answer (HTTP 404/410, a closed banner) closes it; anything unclear keeps it. Closed results are stored and never come back.                                                                                                                                                                                                                        |
-| Sensitive answers never go to a model | EEO, work authorization, contact details and GPA are filled from your saved choices. Tests assert they never appear in a model request.                                                                                                                                                                                                                                                                                                                                                                                       |
+| Sensitive answers never go to a model | EEO, work authorization, contact details and GPA are filled from your saved choices. Tests assert they never appear in a model request, through the API or the Claude CLI.                                                                                                                                                                                                                                                                                                                                                    |
 | Platforms that ban automation         | No LinkedIn or Handshake code. Unknown sites need your explicit per-site permission. Outreach messages are drafts you send yourself. A site that turns automated clients away (Workday answers HTTP 429) is left alone for the run; the tool doesn't disguise itself to get past it.                                                                                                                                                                                                                                          |
 | Polite to public APIs                 | Requests to each host are spaced 1 second apart, with retries and backoff. Boards are polled every 6 hours. A per-company cap (default 3) limits how many roles you apply to at one company.                                                                                                                                                                                                                                                                                                                                  |
 
@@ -28,7 +28,7 @@ npm run ia -- init          # creates profile.yaml (gitignored), the data folder
 ```
 
 1. Fill in `profile.yaml`: facts with ids, skills with honest levels, work authorization, EEO choices (`decline` is fine), and your preferences.
-2. For tailored drafts, set `ANTHROPIC_API_KEY`. Without it, everything runs offline: keyword scoring, your base resume, and open questions left for you.
+2. For tailored drafts, give it a way to reach Claude: an Anthropic API key (`ANTHROPIC_API_KEY`), or the Claude Code CLI on your Claude subscription. See [Reaching Claude](#reaching-claude-api-key-or-claude-cli). Without either, everything runs offline: keyword scoring, your base resume, and open questions left for you.
 3. Find and prepare applications:
 
 ```bash
@@ -65,9 +65,9 @@ npm run ia -- serve         # http://127.0.0.1:4317
 | `stats`                                    | Reply rates by tier, score band, source and ATS; what's due; suggestions                                                            |
 | `export [--format csv\|tsv]`               | Tracker export for Google Sheets or Excel                                                                                           |
 | `email-sync <mbox\|folder> [--dry-run]`    | Update statuses from a local email export. Rule-based; nothing leaves your machine.                                                 |
-| `cost`                                     | Model spend so far, from logged usage                                                                                               |
+| `cost`                                     | Model spend so far, from logged usage. Claude CLI calls are listed apart, as estimates your subscription covers.                    |
 
-Add `--offline` to any command to keep it from calling the Claude API.
+Add `--offline` to any command to keep it from calling Claude, or `--provider api|cli` to choose how it reaches Claude for that run.
 
 ## How it fits together
 
@@ -93,6 +93,21 @@ public sources ─▶ local app (sourcer → SQLite + profile.yaml → scorer/ta
 
 Models: `claude-opus-5-5` drafts (effort `medium` for Tier B, `high` for Tier A) and runs the truth check (effort `low`). `claude-haiku-5-5` handles requirement matching and field mapping. Tier B can use `claude-sonnet-5-5` with `--sonnet`.
 
+## Reaching Claude: API key or Claude CLI
+
+Pick one in the review UI under **Settings**, or per command with `--provider api|cli`. The choice is saved in your local database under `data/`.
+
+|                 | Anthropic API key                                                                                                                                                             | Claude CLI (subscription)                                                                                                                                         |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Set up          | `ANTHROPIC_API_KEY` in your environment, or paste a key in Settings (saved to `data/anthropic-api-key`, readable only by you, never shown again beyond its last 4 characters) | Install Claude Code and sign in once by running `claude` in a terminal. It's found on `PATH` or in the usual install folders; Settings can take an explicit path. |
+| Billing         | Per token, on your API account                                                                                                                                                | Covered by your subscription. `cost` and Stats show CLI calls as estimates, apart from API spend.                                                                 |
+| Tier B drafting | Batch API at half price (`batch`, `serve --auto --batch`)                                                                                                                     | No Batch API: Tier B is prepared one at a time, and `batch` says so.                                                                                              |
+| Usage limits    | API rate limits                                                                                                                                                               | When the subscription's limit is hit, prep pauses and says so; unfinished applications go first next run. Nothing retries in a loop.                              |
+
+Settings shows whether a key is found, and whether the CLI is installed, its version and whether it's signed in. **Test connection** makes one tiny Haiku call.
+
+Both providers get the same request text. The CLI runs as `claude -p --output-format json --json-schema …`, from an argv array (no shell), with no tools, no MCP servers, no settings files and no saved session. It starts in an empty temp folder, so no `CLAUDE.md` or project file is read, and API credentials are removed from its environment so it uses your subscription.
+
 ## What's verified, and what isn't
 
 Last full run: 2026-11-18 (second end-to-end pass, with live Claude calls).
@@ -103,6 +118,7 @@ Last full run: 2026-11-18 (second end-to-end pass, with live Claude calls).
 - **Workday from this tool:** Workday's public jobs endpoint answers curl but returns HTTP 429 to Node's HTTP client, so live Workday sourcing, descriptions and open checks don't work yet. The code stops asking for the rest of the run, and Workday postings found through SimplifyJobs are kept (their open check says "unclear"). The Workday source is covered by tests against recorded response shapes only.
 - **Not yet verified on live forms:** Workday, SmartRecruiters and iCIMS forms; fixtures are modeled on each platform's structure, not copied. Ashby's custom questions aren't in its public API, so they're never drafted: the extension maps the ones your profile answers and leaves the rest for you. Lever's are read from its application page during `enrich` (the page is server-rendered, so no browser opens), checked against one public demo page and fixtures; open custom Lever questions go through the same drafting as Greenhouse's (not yet run live). Watch the first real submissions on every platform.
 - **Claude API, live:** requirement matching (Haiku), drafting (Opus, and Haiku when there's nothing to write), the truth check, the added cover-letter paragraph, PDF rendering and `cost` ran on real postings: resumes came out one page and passed the parse check, and the truth check caught claims taken from the cover letter but not in the profile. `stories` and `outreach` have only run against the fake. Tests never call the API.
+- **Claude CLI provider:** tested against a fake `claude` binary: the exact argv, stdin, empty working folder, removed credentials, JSON parsing, one retry on a malformed answer, the usage-limit pause, and that every model call sends the CLI exactly what the API path sends, with no sensitive values. Live, against Claude Code 2.1.325: the flags parse, Settings reads its version and sign-in, and a missing or signed-out CLI stops prep once with a clear message. Signed in on a subscription (Claude Code 2.1.311), `prep --limit 1 --provider cli` drafted, truth-checked and prepared a real application, and `cost` listed it as a subscription estimate. Through the API provider, `prep --provider api` and Test connection ran live.
 - **Email sync** reads exported mail only. There is no Gmail API sign-in, by design.
 
 ## Development
@@ -117,4 +133,4 @@ CI runs all of the above, plus `npm audit --omit=dev`. Tests never call the Clau
 
 ## Your data
 
-Your real profile lives in `profile.yaml`, which is gitignored; `profile.example.yaml` shows the format. Keep writing samples under `data/` too. The database, generated resumes, submission snapshots and exports live under `data/`, which is gitignored too. Everything stays on your machine except two kinds of outbound traffic: reads of public job boards (including Lever's application pages), and Claude API requests that carry only skills, facts and posting text. This repository is public, so keep it that way.
+Your real profile lives in `profile.yaml`, which is gitignored; `profile.example.yaml` shows the format. Keep writing samples under `data/` too. The database, generated resumes, submission snapshots and exports live under `data/`, which is gitignored too. Everything stays on your machine except two kinds of outbound traffic: reads of public job boards (including Lever's application pages), and Claude requests (through the API or the Claude CLI) that carry only skills, facts and posting text. This repository is public, so keep it that way.

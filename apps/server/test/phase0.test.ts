@@ -11,7 +11,7 @@ describe("Store", () => {
   it("migrates a fresh database to the latest version", () => {
     const store = memoryStore();
     const v = store.db.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(v.user_version).toBe(4);
+    expect(v.user_version).toBe(5);
   });
 
   it("enforces the status machine and stamps times", () => {
@@ -32,7 +32,9 @@ describe("Store", () => {
       output_tokens: 6000,
       cache_read_input_tokens: 10000,
     });
-    expect(store.costSummary()).toEqual([{ purpose: "draft", calls: 1, usd: 0.142 }]);
+    expect(store.costSummary()).toEqual([
+      { purpose: "draft", provider: "api", calls: 1, usd: 0.142 },
+    ]);
   });
 });
 
