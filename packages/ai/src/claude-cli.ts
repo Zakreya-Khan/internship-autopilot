@@ -52,8 +52,14 @@ const USAGE_LIMIT =
   /usage limit|limit reached|hit your limit|out of (extra )?usage|rate.?limit|resets? (at|in)\b/i;
 const NOT_SIGNED_IN = /not logged in|please run \/login|invalid api key|authenticat|oauth/i;
 
-/** Where the CLI usually lives when it isn't on PATH. */
-function commonLocations(home: string): string[] {
+/**
+ * Where the CLI usually lives when it isn't on PATH. IA_CLAUDE_LOCATIONS (paths separated like
+ * PATH) replaces the list; tests set it empty so a CLI installed on the machine is never used.
+ */
+function commonLocations(env: NodeJS.ProcessEnv): string[] {
+  if (env.IA_CLAUDE_LOCATIONS !== undefined)
+    return env.IA_CLAUDE_LOCATIONS.split(delimiter).filter(Boolean);
+  const home = env.HOME ?? homedir();
   return [
     join(home, ".local", "bin", "claude"),
     join(home, ".claude", "local", "claude"),
@@ -81,7 +87,7 @@ export function findClaudeCli(
     const p = join(dir, "claude");
     if (executable(p)) return p;
   }
-  return commonLocations(env.HOME ?? homedir()).find(executable) ?? null;
+  return commonLocations(env).find(executable) ?? null;
 }
 
 export interface RunResult {

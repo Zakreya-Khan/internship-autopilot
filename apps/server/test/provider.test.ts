@@ -44,10 +44,11 @@ function setup() {
     profile: join(home, "profile.yaml"),
   };
   const bin = join(home, "claude");
-  writeFileSync(bin, `#!/usr/bin/env node\n${readFileSync(FAKE, "utf8")}`);
+  writeFileSync(bin, `#!${process.execPath}\n${readFileSync(FAKE, "utf8")}`);
   chmodSync(bin, 0o755);
-  // A PATH without any real claude, and no API credentials.
-  const env: NodeJS.ProcessEnv = { PATH: process.env.PATH ?? "", HOME: home };
+  // No real claude anywhere it could look (even one installed on this machine), and no API
+  // credentials.
+  const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin", HOME: home, IA_CLAUDE_LOCATIONS: "" };
   return { store: memoryStore(), paths, bin, env };
 }
 

@@ -44,7 +44,8 @@ let bin: string;
 function env(mode = "ok", answers?: Record<string, unknown>): NodeJS.ProcessEnv {
   const e: NodeJS.ProcessEnv = {
     ...process.env,
-    PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
+    PATH: `${dir}${delimiter}/usr/bin${delimiter}/bin`,
+    IA_CLAUDE_LOCATIONS: "",
     FAKE_CLAUDE_LOG: logFile,
     FAKE_CLAUDE_MODE: mode,
     // Present in the parent, so the test proves the CLI never sees them.
@@ -72,7 +73,7 @@ const flag = (r: Run, name: string) => r.argv[r.argv.indexOf(name) + 1];
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "fake-claude-"));
   bin = join(dir, "claude");
-  writeFileSync(bin, `#!/usr/bin/env node\n${readFileSync(FAKE, "utf8")}`);
+  writeFileSync(bin, `#!${process.execPath}\n${readFileSync(FAKE, "utf8")}`);
   chmodSync(bin, 0o755);
   logFile = join(dir, "runs.jsonl");
 });
@@ -167,6 +168,8 @@ describe("finding the CLI and its status", () => {
     expect(findClaudeCli(null, env())).toBe(bin);
     expect(findClaudeCli(bin, env())).toBe(bin);
     expect(findClaudeCli(join(dir, "nope"), env())).toBeNull();
+    expect(findClaudeCli(null, { PATH: "/usr/bin:/bin", IA_CLAUDE_LOCATIONS: "" })).toBeNull();
+    expect(findClaudeCli(null, { PATH: "", IA_CLAUDE_LOCATIONS: bin })).toBe(bin);
   });
 
   it("reports version and sign-in, never the account's email or organization", async () => {
