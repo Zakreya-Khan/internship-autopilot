@@ -185,3 +185,29 @@ describe("cost: nothing to write", () => {
     expect(llm.requests.find((q) => q.purpose === "draft")!.model).toBe("claude-opus-5-5");
   });
 });
+
+describe("re-prep replans placeholders", () => {
+  it("replaces an empty 'needs you' row but keeps what you typed", () => {
+    const store = memoryStore();
+    const posting = makePosting({ id: "r1" });
+    store.savePostings([posting]);
+    const app = store.createApplication("r1", "B");
+    const entry = (key: string, note: string) => ({
+      key,
+      label: key,
+      type: "text" as const,
+      required: false,
+      value: null,
+      source: "you" as const,
+      confidence: "low" as const,
+      flag: "amber" as const,
+      note,
+    });
+    store.replaceFieldFills(app.id, [entry("org", "old"), entry("mine", "old")]);
+    store.setFieldByUser(app.id, "mine", "typed by you");
+    store.replaceFieldFills(app.id, [entry("org", "new"), entry("mine", "new")]);
+    const rows = new Map(store.listFieldFills(app.id).map((f) => [f.field_key, f]));
+    expect(rows.get("org")!.note).toBe("new");
+    expect(rows.get("mine")!.planned_value).toBe("typed by you");
+  });
+});

@@ -638,7 +638,11 @@ export class Store {
     const now = this.now();
     this.transaction(() => {
       this.db
-        .prepare("DELETE FROM field_fills WHERE application_id = ? AND source != 'you'")
+        // Keep only what you actually typed. Empty "needs you" placeholders are replanned.
+        .prepare(
+          `DELETE FROM field_fills WHERE application_id = ?
+            AND (source != 'you' OR planned_value IS NULL OR planned_value = '')`,
+        )
         .run(applicationId);
       const stmt = this.db
         .prepare(`INSERT INTO field_fills (application_id, field_key, label, field_type,
