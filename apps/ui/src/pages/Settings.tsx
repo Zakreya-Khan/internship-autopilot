@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ConnectionTest, Provider, ProviderSettings } from "../api.ts";
-import { api } from "../api.ts";
+import { api, extensionToken } from "../api.ts";
 
 const PROVIDERS: Provider[] = ["api", "cli"];
 
@@ -186,6 +186,43 @@ export function Settings() {
             : `${s.labels[s.selected]} isn't ready: ${s.reason}`}
         </p>
       </section>
+      <ExtensionSetup />
+    </section>
+  );
+}
+
+/** What the browser extension's options page needs, with a copy button. */
+function ExtensionSetup() {
+  const [shown, setShown] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const token = extensionToken();
+  return (
+    <section className="panel">
+      <h2>Browser extension</h2>
+      <p className="muted">
+        The extension fills application pages; you press Submit. Load it once in Chrome
+        (chrome://extensions → Developer mode → Load unpacked → <code>apps/extension/dist</code>),
+        then paste these into its options page.
+      </p>
+      <p>
+        Server: <code>{window.location.origin}</code>
+      </p>
+      <p className="row">
+        <span>
+          Token: <code>{shown ? token : "•".repeat(12)}</code>
+        </span>
+        <span className="actions">
+          <button className="quiet" onClick={() => setShown((x) => !x)}>
+            {shown ? "Hide" : "Show"}
+          </button>
+          <button
+            className="quiet"
+            onClick={() => void navigator.clipboard.writeText(token).then(() => setCopied(true))}
+          >
+            {copied ? "Copied" : "Copy token"}
+          </button>
+        </span>
+      </p>
     </section>
   );
 }

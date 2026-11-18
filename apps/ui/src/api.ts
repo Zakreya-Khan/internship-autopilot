@@ -205,6 +205,91 @@ export interface ProviderSettings {
   };
 }
 
+export type JobKind =
+  | "refresh"
+  | "check-open"
+  | "prep"
+  | "batch-submit"
+  | "batch-collect"
+  | "batch-cancel"
+  | "stories"
+  | "outreach"
+  | "email-sync";
+
+export interface JobView {
+  id: number;
+  kind: JobKind;
+  label: string;
+  status: "running" | "done" | "failed" | "cancelled";
+  startedAt: string;
+  finishedAt: string | null;
+  progress: { done: number; total: number; note: string | null } | null;
+  log: string[];
+  summary: string | null;
+  result: unknown;
+  error: string | null;
+}
+
+export interface PostingRow {
+  id: string;
+  company: string;
+  title: string;
+  locations: string[];
+  ats: string;
+  sources: string[];
+  applyUrl: string;
+  deadline: string | null;
+  postedAt: string | null;
+  firstSeen: string;
+  isOpen: boolean;
+  sponsorship: string;
+  hasDescription: boolean;
+  tier: Tier | null;
+  score: number | null;
+  passed: boolean | null;
+  filterReasons: string[];
+  application: { id: number; status: ApplicationStatus } | null;
+  liveness: { verdict: string; reason: string; checkedAt: string } | null;
+}
+
+export interface PostingSearch {
+  total: number;
+  offset: number;
+  items: PostingRow[];
+  sources: { name: string; count: number }[];
+  counts: { all: number; open: number; passed: number };
+}
+
+export interface PostingQuery {
+  q?: string;
+  tier?: string;
+  minScore?: string;
+  company?: string;
+  location?: string;
+  source?: string;
+  open?: string;
+  filter?: string;
+  status?: string;
+  sort?: string;
+  offset?: number;
+  limit?: number;
+}
+
+export interface Summary {
+  applications: Partial<Record<ApplicationStatus, number>>;
+  needsInput: number;
+  ready: number;
+  approved: number;
+  filled: number;
+  sent: number;
+  postings: { open: number; passed: number; unstarted: number; unstartedAB: number };
+  lastRefresh: string | null;
+  openBatches: number;
+  dueSoon: number;
+  questions: number;
+  jobs: JobView[];
+}
+
 export type ConnectionTest = { ok: true; model: string; ms: number } | { ok: false; error: string };
 
 function token(): string {
@@ -244,6 +329,19 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 /** Pages that change answers tell the nav badge to recount. */
 export function questionsChanged(): void {
   window.dispatchEvent(new Event("ia:questions-changed"));
+  changed();
+}
+
+/** Something changed (a status, a job finished): the nav counts and home page reload. */
+export function changed(): void {
+  window.dispatchEvent(new Event("ia:changed"));
+}
+
+function query(q: object): string {
+  const parts = Object.entries(q)
+    .filter(([, v]) => v !== undefined && v !== "")
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+  return parts.length ? `?${parts.join("&")}` : "";
 }
 
 export const api = {
@@ -307,7 +405,40 @@ export const api = {
   saveApiKey: (key: string) => call<ProviderSettings>("PUT", "/api/settings/api-key", { key }),
   forgetApiKey: () => call<ProviderSettings>("DELETE", "/api/settings/api-key"),
   fileUrl: (id: number, kind: "resume" | "cover_letter") => `/api/applications/${id}/files/${kind}`,
+  summary: () => call<Summary>("GET", "/api/summary"),
+  postings: (q: PostingQuery) => call<PostingSearch>("GET", `/api/postings${query(q)}`),
+  skipPostings: (ids: string[], undo = false) =>
+    call<{ skipped?: number; left?: number; restored?: number }>("POST", "/api/postings/skip", {
+      ids,
+      undo,
+    }),
+  jobs: () => call<JobView[]>("GET", "/api/jobs"),
+  job: (id: number) => call<JobView>("GET", `/api/jobs/${id}`),
+  startJob: (kind: JobKind, params: Record<string, unknown> = {}) =>
+    call<JobView>("POST", "/api/jobs", { kind, params }),
+  cancelJob: (id: number) => call<JobView>("POST", `/api/jobs/${id}/cancel`),
+  batches: () => call<{ id: string; application_ids: number[] }[]>("GET", "/api/batches"),
+  stories: () => call<{ markdown: string | null }>("GET", "/api/stories"),
+  launch: (id: number) =>
+    call<{ applyUrl: string; ats: string }>("POST", `/api/applications/${id}/launch`),
 };
+
+/** Career sites the extension fills by itself (the same list as the extension's). */
+export const SUPPORTED_HOSTS =
+  /(^|\.)(greenhouse\.io|lever\.co|ashbyhq\.com|myworkdayjobs\.com|myworkdaysite\.com|smartrecruiters\.com|icims\.com)$/;
+
+export function isSupportedUrl(url: string): boolean {
+  try {
+    return SUPPORTED_HOSTS.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** The token the extension's options page needs (the page carries it). */
+export function extensionToken(): string {
+  return token();
+}
 
 /** PDFs need the token header too, so they are fetched and opened as a blob URL. */
 export async function openPdf(id: number, kind: "resume" | "cover_letter"): Promise<void> {

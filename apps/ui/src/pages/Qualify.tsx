@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { QualifyItem } from "../api.ts";
 import { api } from "../api.ts";
+import { JobStatus, useJob } from "../components/Jobs.tsx";
 
 type Verdict = "meets" | "close";
 
@@ -10,6 +11,8 @@ export function Qualify() {
   const [verdict, setVerdict] = useState<Verdict>("meets");
   const [items, setItems] = useState<QualifyItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [round, setRound] = useState(0);
+  const refresh = useJob("refresh", () => setRound((r) => r + 1));
 
   useEffect(() => {
     setItems(null);
@@ -17,7 +20,7 @@ export function Qualify() {
       .qualify(verdict)
       .then(setItems)
       .catch((e: Error) => setError(e.message));
-  }, [verdict]);
+  }, [verdict, round]);
 
   if (error) return <p role="alert">{error}</p>;
   return (
@@ -38,12 +41,23 @@ export function Qualify() {
         never judged for you. Postings that state fewer than two minimums aren't listed.
       </p>
       {!items ? (
-        <p>Loading…</p>
+        <p>Checking requirements…</p>
       ) : items.length === 0 ? (
-        <p>
-          Nothing here yet. Run `npm run ia -- refresh` to fetch descriptions, and set
-          ANTHROPIC_API_KEY so each posting's required skills are read.
-        </p>
+        <div className="empty panel">
+          <p>
+            Nothing here yet. Requirements are read from each posting's description: find postings
+            to fetch them. With Claude set up in <a href="#/settings">Settings</a>, each posting's
+            required skills are read too.
+          </p>
+          <button disabled={refresh.running} onClick={() => void refresh.start()}>
+            Find postings
+          </button>
+          <JobStatus
+            job={refresh.job}
+            error={refresh.error}
+            onCancel={() => void refresh.cancel()}
+          />
+        </div>
       ) : (
         <table className="queue">
           <thead>

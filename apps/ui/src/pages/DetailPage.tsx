@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Detail } from "../api.ts";
-import { api, openPdf } from "../api.ts";
+import { api, changed, openPdf } from "../api.ts";
+import { OpenFill } from "../components/OpenFill.tsx";
+import { STATUS_LABEL } from "../labels.ts";
+import { typing } from "./Queue.tsx";
 import { FieldsTable } from "../components/FieldsTable.tsx";
 import { ResumeDiffView } from "../components/ResumeDiffView.tsx";
 
@@ -67,17 +70,37 @@ export function DetailPage({ id }: { id: number }) {
     void load();
   }, [load]);
 
-  const guard = async (fn: () => Promise<unknown>) => {
-    setError(null);
-    try {
-      await fn();
-      await load();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
+  const guard = useCallback(
+    async (fn: () => Promise<unknown>) => {
+      setError(null);
+      try {
+        await fn();
+        changed();
+        await load();
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [load],
+  );
 
-  if (!d) return error ? <p role="alert">{error}</p> : <p>Loading…</p>;
+  // a approve, s skip, Escape back to the queue.
+  const status = d?.application.status;
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      if (typing(e)) return;
+      if (e.key === "a" && status === "ready") void guard(() => api.setStatus(id, "approved"));
+      else if (e.key === "s" && status && ["needs_input", "ready", "approved"].includes(status))
+        void guard(() => api.setStatus(id, "skipped"));
+      else if (e.key === "Escape") window.location.hash = "#/queue";
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  }, [guard, id, status]);
+
+  if (!d) return error ? <p role="alert">{error}</p> : <p>Loading the application…</p>;
   const { application: a, posting: p } = d;
   const editable = ["needs_input", "ready", "approved"].includes(a.status);
   const answers = d.drafts.filter((x) => x.kind === "answer");
@@ -86,7 +109,7 @@ export function DetailPage({ id }: { id: number }) {
   return (
     <article>
       <p>
-        <a href="#/">← Queue</a>
+        <a href="#/queue">← Queue</a>
       </p>
       <header className="row">
         <div>
@@ -102,7 +125,16 @@ export function DetailPage({ id }: { id: number }) {
         <div className="actions">
           {a.status === "ready" ? (
             <button onClick={() => void guard(() => api.setStatus(a.id, "approved"))}>
-              Approve
+              Approve <kbd>a</kbd>
+            </button>
+          ) : null}
+          {a.status === "approved" ? <OpenFill id={a.id} company={p.company} /> : null}
+          {a.status === "approved" ? (
+            <button
+              className="quiet"
+              onClick={() => void guard(() => api.setStatus(a.id, "ready"))}
+            >
+              Unapprove
             </button>
           ) : null}
           {a.status === "filled" ? (
@@ -120,8 +152,11 @@ export function DetailPage({ id }: { id: number }) {
       </header>
       {error ? <p role="alert">{error}</p> : null}
       <p>
-        Status: <strong>{a.status.replace("_", " ")}</strong>
+        Status: <strong>{STATUS_LABEL[a.status] ?? a.status}</strong>
         {d.flags.red ? ` · ${d.flags.red} field(s) need you before this can be approved` : ""}
+        {a.status === "filled"
+          ? " · The extension filled the page. Press the site's Submit button, then mark it here if the extension didn't see the confirmation page."
+          : ""}
       </p>
 
       <div className="columns">

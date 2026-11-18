@@ -11,7 +11,7 @@ import { Qualify } from "../src/pages/Qualify.tsx";
 
 vi.mock("../src/api.ts", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  api: { qualify: vi.fn() },
+  api: { qualify: vi.fn(), jobs: vi.fn(async () => []) },
 }));
 
 afterEach(cleanup);
@@ -117,7 +117,11 @@ describe("routing", () => {
     expect(parseRoute("#/app/12")).toEqual({ page: "detail", id: 12 });
     expect(parseRoute("#/tracker")).toEqual({ page: "tracker" });
     expect(parseRoute("#/qualify")).toEqual({ page: "qualify" });
-    expect(parseRoute("")).toEqual({ page: "queue" });
+    expect(parseRoute("")).toEqual({ page: "home" });
+    expect(parseRoute("#/queue")).toEqual({ page: "queue", status: null });
+    expect(parseRoute("#/queue/ready")).toEqual({ page: "queue", status: "ready" });
+    expect(parseRoute("#/discover")).toEqual({ page: "discover" });
+    expect(parseRoute("#/tools")).toEqual({ page: "tools" });
   });
 });
 

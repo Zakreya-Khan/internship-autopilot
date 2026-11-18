@@ -35,7 +35,7 @@ export function Tracker() {
     }
   };
 
-  if (!rows) return error ? <p role="alert">{error}</p> : <p>Loading…</p>;
+  if (!rows) return error ? <p role="alert">{error}</p> : <p>Loading the tracker…</p>;
   return (
     <section>
       <header className="row">
@@ -51,7 +51,13 @@ export function Tracker() {
       </header>
       {error ? <p role="alert">{error}</p> : null}
       {rows.length === 0 ? (
-        <p>No submitted applications yet.</p>
+        <div className="empty panel">
+          <p>
+            Nothing submitted yet. Approved applications are on{" "}
+            <a href="#/queue/approved">Ready to fill</a>: Open &amp; fill, then press Submit on the
+            site.
+          </p>
+        </div>
       ) : (
         <table className="queue">
           <thead>
