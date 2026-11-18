@@ -33,7 +33,7 @@ import {
   wordCount,
 } from "@ia/core";
 import type { Draft, DraftRequest } from "@ia/ai";
-import { draftApplication, modelTruthCheck } from "@ia/ai";
+import { draftApplication, MODELS, modelTruthCheck } from "@ia/ai";
 import { parseCheckResume, renderCoverLetterPdf, renderResumePdf } from "@ia/render";
 import type { ApplicationRow, Store } from "./db.ts";
 import type { LivenessCheck } from "./liveness.ts";
@@ -84,6 +84,12 @@ export function prepInputs(deps: PrepDeps, posting: Posting, tier: Tier): PrepIn
   return { app, posting, tier, questions, openToDraft, coverLetter };
 }
 
+function nothingToWrite(deps: PrepDeps, i: PrepInputs): boolean {
+  return (
+    deps.profile.style.resume_wording === "original" && i.openToDraft.length === 0 && !i.coverLetter
+  );
+}
+
 export function draftRequest(deps: PrepDeps, i: PrepInputs): DraftRequest {
   return {
     profile: deps.profile,
@@ -93,7 +99,13 @@ export function draftRequest(deps: PrepDeps, i: PrepInputs): DraftRequest {
     coverLetter: i.coverLetter,
     voice: deps.voice ?? null,
     coverBase: deps.coverBase ?? null,
-    ...(i.tier === "B" && deps.tierBModel ? { model: deps.tierBModel } : {}),
+    // With your own resume wording, no open questions and no cover letter, the model only orders
+    // bullets and writes the fit note: Haiku does that for a fraction of the cost.
+    ...(nothingToWrite(deps, i)
+      ? { model: MODELS.haiku }
+      : i.tier === "B" && deps.tierBModel
+        ? { model: deps.tierBModel }
+        : {}),
   };
 }
 
@@ -392,29 +404,32 @@ export function selectForPrep(
 ): PrepSelection[] {
   const { store, profile } = deps;
   const tiers = opts.tiers ?? ["A", "B"];
+  const limit = opts.limit ?? 25;
   const cap = profile.preferences.per_company_cap;
   const perCompany = new Map<string, number>();
-  const out: PrepSelection[] = [];
+  // Unfinished work first: an application left in "prepared" (a failed or interrupted run, or one
+  // you sent back) is finished before any new posting is started, outside the company cap.
+  const retries: PrepSelection[] = [];
+  const fresh: PrepSelection[] = [];
   const inBatch = new Set(store.openBatches().flatMap((b) => b.application_ids));
   for (const { posting, score } of store.rankedCandidates(5000)) {
-    if (out.length >= (opts.limit ?? 25)) break;
-    const tier = score.fit?.tier;
-    if (!tier || !tiers.includes(tier)) continue;
+    if (retries.length >= limit) break;
     const existing = store.applicationForPosting(posting.id);
     if (existing && inBatch.has(existing.id)) continue; // a Message Batch will finish it
-    // An application left in "prepared" by a failed run is retried, outside the company cap.
     if (existing?.status === "prepared") {
-      out.push({ posting, tier: existing.tier });
+      if (tiers.includes(existing.tier)) retries.push({ posting, tier: existing.tier });
       continue;
     }
-    if (existing) continue;
+    if (existing || fresh.length >= limit) continue;
+    const tier = score.fit?.tier;
+    if (!tier || !tiers.includes(tier)) continue;
     const c = normalizeCompany(posting.company);
     const used = perCompany.get(c) ?? store.countActiveForCompany(c);
     if (used >= cap) continue;
     perCompany.set(c, used + 1);
-    out.push({ posting, tier });
+    fresh.push({ posting, tier });
   }
-  return out;
+  return [...retries, ...fresh].slice(0, limit);
 }
 
 /**

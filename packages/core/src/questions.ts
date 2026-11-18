@@ -99,7 +99,7 @@ const USER_ONLY: RegExp[] = [
 ];
 
 const NEEDS_YOU: RegExp[] = [
-  /(know|related to) (anyone|someone)|referr(al|ed)|employee (name|referral)/i,
+  /(know|related to) (anyone|someone)|\breferr(al|ed)\b|employee (name|referral)/i,
   /previously (worked|employed|applied)|former employee|worked (here|for us) before/i,
   /rate your|on a scale|years of (professional )?experience/i,
   /salary|compensation expectation|desired pay/i,
@@ -324,6 +324,20 @@ export function pickGradOption(options: string[], grad: string): string | null {
 /** "3.75+", "3.41 - 3.74", "Below 3.4": the range that contains the value, if exactly one does. */
 export function pickNumericRange(options: string[], value: number): string | null {
   if (!Number.isFinite(value)) return null;
+  const direct = numericHit(options, value);
+  if (direct !== null) return direct;
+  // 3.47 against "3.0-3.4" / "3.5-3.9" falls between buckets: cut it to the options' precision
+  // (3.4), never round it up into a higher bucket.
+  const places = Math.max(
+    0,
+    ...options.flatMap((o) => (o.match(/\d+\.(\d+)/g) ?? []).map((n) => n.split(".")[1]!.length)),
+  );
+  const f = 10 ** places;
+  const cut = Math.floor(value * f + 1e-9) / f;
+  return cut === value ? null : numericHit(options, cut);
+}
+
+function numericHit(options: string[], value: number): string | null {
   const hits = options.filter((o) => {
     const nums = (o.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
     if (nums.length === 0) return false;

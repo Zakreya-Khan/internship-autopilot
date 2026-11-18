@@ -202,6 +202,20 @@ describe("prep", () => {
     const report = await runPrep(d, { limit: 2 });
     expect(report.prepared).toBe(2);
   });
+
+  it("finishes an unfinished application before starting a better-ranked new one", async () => {
+    const d = deps(null);
+    const postings = [1, 2, 3].map((n) =>
+      makePosting({ id: `c${n}`, company: `Co ${n}`, title: "Software Engineer Intern" }),
+    );
+    d.store.savePostings(postings);
+    await runScoring(d);
+    const ranked = d.store.rankedCandidates(10).map((c) => c.posting.id);
+    const last = ranked.at(-1)!;
+    d.store.createApplication(last, "B");
+    const sel = selectForPrep(d, { limit: 1 });
+    expect(sel.map((s) => s.posting.id)).toEqual([last]);
+  });
 });
 
 describe("API", () => {

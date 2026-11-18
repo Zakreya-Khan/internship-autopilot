@@ -165,3 +165,23 @@ describe("cover_letter_base", () => {
     expect(cover.text.split("\n\n")).toEqual(LETTER.paragraphs);
   });
 });
+
+describe("cost: nothing to write", () => {
+  it("drafts on Haiku when only the bullet order is left to decide", async () => {
+    const llm = new FakeLlm({ draft: () => output(null), truth_check: () => ({ verdicts: [] }) });
+    const d = deps(llm, ownWordsProfile());
+    const posting = makePosting({ id: "p6", questions: QUESTIONS.slice(0, 2) });
+    d.store.savePostings([posting]);
+    await prepareOne(d, posting, "B");
+    expect(llm.requests.find((q) => q.purpose === "draft")!.model).toBe("claude-haiku-5-5");
+  });
+
+  it("keeps the usual model when there is a cover letter or a question to write", async () => {
+    const llm = new FakeLlm({ draft: () => output(ADDED), truth_check: () => ({ verdicts: [] }) });
+    const d = deps(llm, ownWordsProfile());
+    const posting = makePosting({ id: "p7", questions: QUESTIONS });
+    d.store.savePostings([posting]);
+    await prepareOne(d, posting, "A");
+    expect(llm.requests.find((q) => q.purpose === "draft")!.model).toBe("claude-opus-5-5");
+  });
+});

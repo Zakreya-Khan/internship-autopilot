@@ -5,6 +5,7 @@ import {
   buildFillPlan,
   classifyQuestion,
   computeFitScore,
+  pickNumericRange,
   pickOption,
   rankedMetros,
   WEIGHTS,
@@ -56,6 +57,22 @@ describe("pass 2: question handling", () => {
       expect(c).toMatchObject({ kind: "needs_you" });
       expect(c.kind === "needs_you" && c.reason).toMatch(/asked at every company/);
     }
+  });
+
+  it("fills 'Preferred First Name' (not a referral question)", () => {
+    expect(classifyQuestion(q("Preferred First Name"))).toEqual({
+      kind: "known",
+      field: "preferred_name",
+    });
+    expect(classifyQuestion(q("Were you referred by an employee?")).kind).toBe("needs_you");
+  });
+
+  it("puts a two-decimal GPA in the bucket it truncates to, never a higher one", () => {
+    const opts = ["4.0-5.0", "3.5-3.9", "3.0-3.4", "below 3.0", "I'd rather not disclose"];
+    expect(pickNumericRange(opts, 3.47)).toBe("3.0-3.4");
+    expect(pickNumericRange(opts, 3.95)).toBe("3.5-3.9");
+    expect(pickNumericRange(opts, 3.6)).toBe("3.5-3.9");
+    expect(pickNumericRange(opts, 2.5)).toBe("below 3.0");
   });
 
   it("matches 'decline' to 'Not Declared' and 'Not Specified' options", () => {
