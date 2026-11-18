@@ -1,50 +1,109 @@
 # internship-autopilot
 
-A personal, local-first tool that prepares internship applications at volume, then stops one click short of sending each one. It finds postings, scores them for fit, tailors a resume and answers from a single profile, and fills the form in your own browser. **You** press the site's Submit button. The tool never does.
+A personal, local-first tool that prepares internship applications at volume and stops one click short of sending each one. It finds postings, scores them for fit, tailors a resume and answers from a single profile, and fills the form in your own browser. **You** press the site's Submit button. The tool never does.
 
-> Status: scaffolding. Nothing runs yet. See the roadmap below.
+All four phases from the spec are built: sourcing and scoring, tailoring with a truth check, the review UI and Chrome extension, Workday and the other ATSs, the Batch API, a generic adapter, email status sync, export and outcome stats. See [What's verified](#whats-verified-and-what-isnt) before relying on it.
 
-## Hard limits
+## Hard limits, and how the code enforces them
 
-These are fixed rules, not settings.
+| Limit                                 | Enforcement                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Never submits                         | An ESLint rule bans `.click()`, `.submit()` and `.requestSubmit()` in adapter and extension code. The one allowed click helper refuses anything that reads like Submit, Apply or Confirm. Tests check that fixture forms never fire `submit`. The API marks an application submitted only after the extension filled it, and only when the confirmation page is seen or you confirm it. |
+| No CAPTCHA or bot-detection bypass    | No solver, no stealth code. The extension runs in your normal Chrome with no WebDriver or CDP session. You solve any check yourself.                                                                                                                                                                                                                                                    |
+| No accounts or passwords              | Password fields are never listed or filled. Workday and iCIMS sign-in screens pause filling until you've signed in yourself.                                                                                                                                                                                                                                                            |
+| No fabrication                        | Every resume bullet must cite fact ids from `profile.yaml`. Code rejects uncited claims, numbers not in a verified fact, technologies not in your profile, and inflated skill levels. A separate Claude pass then checks every draft against its cited facts. A blocked bullet falls back to your own wording; a blocked answer is flagged for you.                                     |
+| Sensitive answers never go to a model | EEO, work authorization, contact details and GPA are filled from your saved choices. Tests assert they never appear in a model request.                                                                                                                                                                                                                                                 |
+| Platforms that ban automation         | No LinkedIn or Handshake code. Unknown sites need your explicit per-site permission.                                                                                                                                                                                                                                                                                                    |
+| Polite to public APIs                 | Requests to each host are spaced 1 second apart, with retries and backoff. Boards are polled every 6 hours. A per-company cap (default 3) limits how many roles you apply to at one company.                                                                                                                                                                                            |
 
-- **Never submits.** No code path clicks a Submit, Apply or Confirm button, or sends an application request.
-- **No CAPTCHA or bot-detection bypass.** No solver services, fingerprint spoofing or stealth plugins. You solve those yourself.
-- **No account creation and no passwords.** The tool never types into a password or sign-up field.
-- **No fabrication.** Every claim must trace to a fact in your profile. A question the profile can't answer truthfully is flagged for you.
-- **No platforms whose terms ban automation** (for example LinkedIn Easy Apply). Roles from those sites can be tracked, but you apply by hand.
-- **Public sources only, rate-limited.** Job-board APIs are polled at most every 6 hours per board.
-- **Sensitive answers never go to the AI model.** EEO, work-authorization and contact fields are filled from your saved choices without passing through Claude.
+## Quick start
+
+Requirements: Node 22.13 or later (24 recommended), and Chrome 116 or later.
+
+```bash
+npm install
+npm run ia -- init          # creates profile.yaml (gitignored), the data folder and your extension token
+```
+
+1. Fill in `profile.yaml`: facts with ids, skills with honest levels, work authorization, EEO choices (`decline` is fine), and your preferences.
+2. For tailored drafts, set `ANTHROPIC_API_KEY`. Without it, everything runs offline: keyword scoring, your base resume, and open questions left for you.
+3. Find and prepare applications:
+
+```bash
+npm run ia -- refresh       # poll sources, score, fetch details, rescore
+npm run ia -- list --tier A
+npm run ia -- prep --limit 10
+```
+
+4. Build and start the review UI:
+
+```bash
+npm run build
+npm run ia -- serve         # http://127.0.0.1:4317
+```
+
+5. Load the extension: open `chrome://extensions`, turn on Developer mode, choose "Load unpacked", and pick `apps/extension/dist`. On its options page, paste the token from `init`.
+6. In the UI, review and approve applications. In the extension's side panel, press **Start session**. Each approved application opens filled; you check it, solve any CAPTCHA, and press the site's own Submit. The session then moves to the next one.
+
+## Commands
+
+| Command                                    | What it does                                                                                                                        |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `init`                                     | Create `profile.yaml`, the data folder and the API token                                                                            |
+| `source` / `score` / `enrich` / `refresh`  | Poll public sources, filter and fit-score, fetch descriptions and Greenhouse forms. `refresh` runs all of them.                     |
+| `list [--tier A] [--limit N]`              | Ranked candidates                                                                                                                   |
+| `prep [--limit N] [--tier A,B] [--sonnet]` | Tailor, truth-check, render PDFs and build fill plans                                                                               |
+| `serve [--port N] [--auto] [--batch]`      | Review UI and extension API on 127.0.0.1. `--auto` refreshes and preps every 6 h; `--batch` sends Tier B drafting to the Batch API. |
+| `batch submit` / `batch collect`           | Tier B drafting through the Message Batches API at half price                                                                       |
+| `stats`                                    | Reply rates by tier, score band, source and ATS; what's due; suggestions                                                            |
+| `export [--format csv\|tsv]`               | Tracker export for Google Sheets or Excel                                                                                           |
+| `email-sync <mbox\|folder> [--dry-run]`    | Update statuses from a local email export. Rule-based; nothing leaves your machine.                                                 |
+| `cost`                                     | Model spend so far, from logged usage                                                                                               |
+
+Add `--offline` to any command to keep it from calling the Claude API.
 
 ## How it fits together
 
 ```
-public sources ──> local app (sourcer → SQLite + profile.yaml → scorer/tailor ⇄ Claude API → review UI)
-                                                                                     │ approved apps
-                                                                                     v
-                         you ── click Submit ──> ATS page <── fills ── Chrome extension
+public sources ─▶ local app (sourcer → SQLite + profile.yaml → scorer/tailor ⇄ Claude API → review UI)
+                                                                                   │ approved
+                                                                                   ▼
+                       you ─ click Submit ─▶ ATS page ◀─ fills ─ Chrome extension (side panel)
 ```
 
-- **Local app:** Node + TypeScript, Fastify on `127.0.0.1`, SQLite, React review UI, Typst for PDFs, `@anthropic-ai/sdk`.
-- **Chrome extension (MV3):** per-ATS adapters that fill fields, read them back, highlight Submit and detect the confirmation page.
-- **Playwright:** a test harness only, replaying adapters against saved HTML fixtures.
+| Path                | What it holds                                                                                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `packages/core`     | Profile schema, ATS URLs, dedupe, filters, fit score, form-question rules, fill plans, resume model and diff, truth checks, status machine, analytics, email rules, CSV export |
+| `packages/sources`  | Fetchers for SimplifyJobs `listings.json` and the Greenhouse, Lever and Ashby public APIs, with a rate limiter                                                                 |
+| `packages/ai`       | Claude client (structured output, cached profile prefix, refusal fallback), requirement matching, drafting, truth check, field matching, Batch API                             |
+| `packages/render`   | One-page resume and cover letter PDFs, plus the text-extraction parse check                                                                                                    |
+| `packages/adapters` | DOM fill engine and adapters: Greenhouse, Lever, Ashby, Workday, SmartRecruiters, iCIMS, generic                                                                               |
+| `apps/server`       | `node:sqlite` store, pipeline, prep, batch, email sync, Fastify API, CLI                                                                                                       |
+| `apps/ui`           | React review queue, detail view with diff and flags, tracker, stats                                                                                                            |
+| `apps/extension`    | Manifest V3 extension: side panel session, background controller, content script                                                                                               |
+| `fixtures/forms`    | Fictional forms modeled on each ATS, used in tests                                                                                                                             |
+| `e2e`               | Playwright tests in real Chromium                                                                                                                                              |
 
-## Sources
+Models: `claude-opus-5-5` drafts (effort `medium` for Tier B, `high` for Tier A) and runs the truth check (effort `low`). `claude-haiku-5-5` handles requirement matching and field mapping. Tier B can use `claude-sonnet-5-5` with `--sonnet`.
 
-- [SimplifyJobs/Summer2027-Internships](https://github.com/SimplifyJobs/Summer2027-Internships)
-- [Greenhouse Job Board API](https://docs.greenhouse.io/job-board.html) (public GET)
-- [Lever Postings API](https://github.com/lever/postings-api) (public GET)
-- [Ashby Posting API](https://developers.ashbyhq.com/docs/public-job-posting-api) (public GET)
+## What's verified, and what isn't
 
-## Roadmap
+- **Verified against live public data:** the SimplifyJobs `listings.json` feed, the Greenhouse, Lever and Ashby list and detail APIs, and the mapping of a real Greenhouse application form (its questions, EEO block and paste-as-text fields). Several mapping bugs found that way are fixed and covered by tests.
+- **Verified in tests:** every adapter against fictional fixture forms, in happy-dom and in real Chromium. That includes Workday's multi-step flow with a custom listbox, and the full prep → approve → fill → your Submit → tracker loop.
+- **Not yet verified on live forms:** the fixtures are modeled on each platform's structure, not copied from real pages. Expect selector fixes the first time you meet a live Workday, SmartRecruiters or iCIMS form. The first real submissions on any platform should be watched closely; that's the Phase 1 gate in the spec.
+- **Not exercised live:** calls to the Claude API. Tests use a scripted fake. The request shapes follow the SDK (1.10), but the first real `prep` is the first live call.
+- **Email sync** reads exported mail only. There is no Gmail API sign-in, by design.
 
-| Phase         | Scope                                                                                                      |
-| ------------- | ---------------------------------------------------------------------------------------------------------- |
-| 0 · Setup     | `profile.yaml` + answer bank, sourcing + dedupe, SQLite schema, filters + fit scoring                      |
-| 1 · MVP       | Tailoring + truth check, review UI + diffs, extension adapters for Greenhouse, Lever, Ashby, tracker + CSV |
-| 2 · More ATSs | Workday, SmartRecruiters, iCIMS (best effort), Batch API for routine prep                                  |
-| 3 · Polish    | Generic fallback adapter, email status sync, Sheets export, outcome analytics                              |
+## Development
+
+```bash
+npm run check        # typecheck, lint, format check, unit tests (run before every commit)
+npm run test:e2e     # Playwright, real Chromium (npx playwright install chromium first)
+npm run build        # review UI + extension
+```
+
+CI runs all of the above, plus `npm audit --omit=dev`. Tests never call the Claude API: use `FakeLlm` from `@ia/ai`, and the fictional fixtures from `@ia/core/testing`.
 
 ## Your data
 
-Your real profile lives in `profile.yaml`, which is gitignored. Copy `profile.example.yaml` to start. The database, generated resumes and submission snapshots (`*.sqlite`, `data/`, `out/`, `snapshots/`) are gitignored too. Keep it that way: this repository is public.
+Your real profile lives in `profile.yaml`, which is gitignored; `profile.example.yaml` shows the format. The database, generated resumes, submission snapshots and exports live under `data/`, which is gitignored too. Everything stays on your machine except two kinds of outbound traffic: reads of public job boards, and Claude API requests that carry only skills, facts and posting text. This repository is public, so keep it that way.
