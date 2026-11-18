@@ -33,6 +33,12 @@ Phase 2
   batch submit [--limit N]
                        Send Tier B drafting to the Message Batches API (half price, up to 24 h)
   batch collect        Finish batches that have ended
+Phase 3
+  stats                Response rates by tier, score band, source and ATS; what's due; suggestions
+  export [--out FILE] [--format csv|tsv]
+                       Tracker export for Google Sheets or Excel
+  email-sync <mbox|folder> [--dry-run]
+                       Update statuses from an email export (local only, rule-based)
 Options
   --offline            Never call the Claude API (keyword scoring, no drafting)
 `;

@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "description": "Fills internship applications prepared by your local Internship Autopilot. You press Submit.",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "sidePanel", "tabs"],
+  "permissions": ["storage", "sidePanel", "tabs", "scripting"],
+  "optional_host_permissions": ["https://*/*"],
   "host_permissions": [
     "http://127.0.0.1/*",
     "http://localhost/*",

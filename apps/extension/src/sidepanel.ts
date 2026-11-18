@@ -33,6 +33,7 @@ function render(s: SessionState): void {
   $<HTMLButtonElement>("confirm").hidden = s.phase !== "waiting_for_you";
   $<HTMLButtonElement>("skip").hidden = !running;
   $<HTMLButtonElement>("end").hidden = !running;
+  $<HTMLButtonElement>("generic").hidden = !(running && s.needsGeneric);
 }
 
 function li(text: string): HTMLLIElement {
@@ -44,6 +45,15 @@ function li(text: string): HTMLLIElement {
 $("start").addEventListener("click", () => void send({ type: "session:start" }).then(render));
 $("confirm").addEventListener("click", () => void send({ type: "session:confirm" }).then(render));
 $("skip").addEventListener("click", () => void send({ type: "session:skip" }).then(render));
+$("generic").addEventListener("click", () => {
+  void (async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url) return;
+    // Chrome asks you to allow this one site. Nothing is injected without that.
+    const granted = await chrome.permissions.request({ origins: [`${new URL(tab.url).origin}/*`] });
+    if (granted) render(await send({ type: "session:inject" }));
+  })();
+});
 $("end").addEventListener("click", () => void send({ type: "session:end" }).then(render));
 chrome.runtime.onMessage.addListener((msg: StateBroadcast) => {
   if (msg.type === "state") render(msg.state);

@@ -1,5 +1,12 @@
 // Type-only imports from @ia/core: nothing from the Node side is bundled into the UI.
-import type { ApplicationStatus, FitScore, ResumeDiff, Tier, TruthIssue } from "@ia/core";
+import type {
+  ApplicationStatus,
+  FitScore,
+  OutcomeReport,
+  ResumeDiff,
+  Tier,
+  TruthIssue,
+} from "@ia/core";
 
 export interface PostingSummary {
   id: string;
@@ -87,21 +94,7 @@ export interface Detail {
 
 export type TrackerRow = ApplicationRow & { posting: PostingSummary };
 
-export interface Stats {
-  totals: Record<string, number>;
-  byTier: { key: string; submitted: number; responded: number; rate: number }[];
-  bySource: { key: string; submitted: number; responded: number; rate: number }[];
-  byAts: { key: string; submitted: number; responded: number; rate: number }[];
-  byScoreBand: { key: string; submitted: number; responded: number; rate: number }[];
-  dueSoon: {
-    id: number;
-    company: string;
-    title: string;
-    next_action: string | null;
-    next_action_due: string;
-  }[];
-  cost: { purpose: string; calls: number; usd: number }[];
-}
+export type Stats = OutcomeReport & { cost: { purpose: string; calls: number; usd: number }[] };
 
 function token(): string {
   const meta = document.querySelector<HTMLMetaElement>('meta[name="ia-token"]')?.content;
@@ -165,4 +158,18 @@ export async function openPdf(id: number, kind: "resume" | "cover_letter"): Prom
   const res = await fetch(api.fileUrl(id, kind), { headers: { "x-ia-token": token() } });
   if (!res.ok) throw new ApiError(`Couldn't load the ${kind.replace("_", " ")}`);
   window.open(URL.createObjectURL(await res.blob()), "_blank", "noopener");
+}
+
+/** The tracker as CSV/TSV for Google Sheets or Excel (fetched with the token, saved as a file). */
+export async function downloadExport(format: "csv" | "tsv"): Promise<void> {
+  const res = await fetch(`/api/export.csv?format=${format}`, {
+    headers: { "x-ia-token": token() },
+  });
+  if (!res.ok) throw new ApiError("Export failed");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(await res.blob());
+  a.download = `applications.${format}`;
+  document.body.append(a);
+  a.dispatchEvent(new MouseEvent("click"));
+  a.remove();
 }

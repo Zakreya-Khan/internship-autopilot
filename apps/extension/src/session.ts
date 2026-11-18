@@ -21,6 +21,29 @@ export interface Mismatch {
   seen: string | null;
 }
 
+/** A field on a page no adapter knows, as the generic adapter lists it. */
+export interface PageFieldInfo {
+  key: string;
+  label: string;
+  type: string;
+  required: boolean;
+  options?: string[];
+}
+
+export type MappedField = FillField & { via: "same_label" | "profile_field" | "model" | "none" };
+
+/** Career sites the content script runs on by itself. Anything else needs your OK first. */
+export const SUPPORTED_HOSTS =
+  /(^|\.)(greenhouse\.io|lever\.co|ashbyhq\.com|myworkdayjobs\.com|myworkdaysite\.com|smartrecruiters\.com|icims\.com)$/;
+
+export function isSupportedUrl(url: string): boolean {
+  try {
+    return SUPPORTED_HOSTS.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 export interface SessionApi {
   next(skip: number[]): Promise<NextResponse>;
   filled(id: number, seen: Record<string, string | null>): Promise<{ mismatches: Mismatch[] }>;
@@ -33,6 +56,7 @@ export interface SessionApi {
     },
   ): Promise<void>;
   abandon(id: number): Promise<void>;
+  mapFields(id: number, fields: PageFieldInfo[]): Promise<{ fields: MappedField[] }>;
 }
 
 export type Phase = "idle" | "loading" | "filling" | "waiting_for_you" | "done" | "error";
@@ -47,6 +71,8 @@ export interface SessionState {
   mismatches: Mismatch[];
   problems: FieldResult[];
   message: string | null;
+  /** The page isn't a known career site: the generic filler needs your OK for this site. */
+  needsGeneric: boolean;
 }
 
 export const IDLE: SessionState = {
@@ -59,6 +85,7 @@ export const IDLE: SessionState = {
   mismatches: [],
   problems: [],
   message: null,
+  needsGeneric: false,
 };
 
 export interface SessionDeps {
@@ -127,7 +154,17 @@ export class SessionController {
       this.snapshot = null;
       const { files: _files, ...summary } = next.application;
       const tabId = await this.deps.openTab(next.application.applyUrl, this.state.tabId);
-      this.set({ phase: "filling", tabId, application: summary, remaining: next.remaining });
+      const known = isSupportedUrl(next.application.applyUrl);
+      this.set({
+        phase: "filling",
+        tabId,
+        application: summary,
+        remaining: next.remaining,
+        needsGeneric: !known,
+        message: known
+          ? null
+          : "This site isn't one the extension knows. Press “Fill this page” to allow it for this site and try the generic filler, or fill it by hand.",
+      });
     } catch (e) {
       this.set({ phase: "error", message: `Couldn't reach the local server: ${String(e)}` });
     }
@@ -194,6 +231,17 @@ export class SessionController {
     } catch (e) {
       this.set({ phase: "error", message: String(e) });
     }
+  }
+
+  /** Generic filler: map the page's fields to the plan (values come only from the plan). */
+  async mapFields(tabId: number, fields: PageFieldInfo[]): Promise<MappedField[]> {
+    if (tabId !== this.state.tabId || !this.current) return [];
+    const { fields: mapped } = await this.deps.api.mapFields(this.current.id, fields);
+    this.set({
+      needsGeneric: false,
+      message: "Generic fill on an unfamiliar site: check every field before you submit.",
+    });
+    return mapped;
   }
 
   /** A message from the page (sign-in needed, a step needs you). Shown in the side panel. */

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ApplicationStatus } from "@ia/core";
 import type { TrackerRow } from "../api.ts";
-import { api } from "../api.ts";
+import { api, downloadExport } from "../api.ts";
 
 const OUTCOMES: ApplicationStatus[] = [
   "submitted",
@@ -40,6 +40,14 @@ export function Tracker() {
     <section>
       <header className="row">
         <h1>Tracker</h1>
+        <div className="actions">
+          <button className="quiet" onClick={() => void guard(() => downloadExport("csv"))}>
+            Export CSV
+          </button>
+          <button className="quiet" onClick={() => void guard(() => downloadExport("tsv"))}>
+            Export TSV
+          </button>
+        </div>
       </header>
       {error ? <p role="alert">{error}</p> : null}
       {rows.length === 0 ? (

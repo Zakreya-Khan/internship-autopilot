@@ -1,6 +1,7 @@
-import type { Adapter, FieldResult } from "@ia/adapters";
+import type { Adapter, FieldResult, FillField } from "@ia/adapters";
 import {
   base64ToFile,
+  extractPageFields,
   fillForm,
   highlightSubmit,
   pickAdapter,
@@ -66,7 +67,13 @@ async function main(): Promise<void> {
     Object.entries(app.files).map(([kind, f]) => [kind, base64ToFile(f!.base64, f!.name)]),
   );
   let results: FieldResult[];
-  if (adapter.nextStep) {
+  if (adapter.id === "generic") {
+    // Unknown site: list the fields, let the server match them to the plan, fill only matches.
+    const page = extractPageFields(document);
+    const mapped = await send<FillField[]>({ type: "content:map", fields: page });
+    results = await fillForm(adapter, document, mapped, files);
+    highlightSubmit(adapter, document);
+  } else if (adapter.nextStep) {
     const outcome = await runWizard(adapter, document, app.fields, files);
     results = outcome.results;
     if (outcome.message) await send({ type: "content:error", message: outcome.message });

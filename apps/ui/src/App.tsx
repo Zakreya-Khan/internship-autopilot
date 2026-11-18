@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { DetailPage } from "./pages/DetailPage.tsx";
 import { Queue } from "./pages/Queue.tsx";
+import { Stats } from "./pages/Stats.tsx";
 import { Tracker } from "./pages/Tracker.tsx";
 
 type Route =
@@ -31,6 +32,9 @@ export function App() {
         <a href="#/tracker" aria-current={route.page === "tracker" ? "page" : undefined}>
           Tracker
         </a>
+        <a href="#/stats" aria-current={route.page === "stats" ? "page" : undefined}>
+          Stats
+        </a>
         <span className="muted small">
           Nothing here submits. You press each site's Submit button.
         </span>
@@ -39,7 +43,7 @@ export function App() {
         {route.page === "queue" ? <Queue /> : null}
         {route.page === "detail" ? <DetailPage id={route.id} /> : null}
         {route.page === "tracker" ? <Tracker /> : null}
-        {route.page === "stats" ? <Queue /> : null}
+        {route.page === "stats" ? <Stats /> : null}
       </main>
     </>
   );

@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import type { Tier } from "@ia/core";
+import type { OutcomeReport, Tier } from "@ia/core";
 import { MODELS } from "@ia/ai";
 import { POLL_INTERVAL_MS } from "@ia/sources";
 import { buildServer } from "./api.ts";
@@ -63,6 +63,7 @@ registerCommand("serve", async (ctx, args) => {
     snapshotsDir: ctx.paths.snapshots,
     uiDir,
     allowedHosts: [`${HOST}:${port}`, `localhost:${port}`],
+    llm: ctx.llm,
   });
   await app.listen({ host: HOST, port });
   console.log(
@@ -127,4 +128,91 @@ registerCommand("batch", async (ctx, args) => {
   } else {
     console.log("Usage: npm run ia -- batch submit [--limit N] | batch collect");
   }
+});
+
+registerCommand("stats", async (ctx) => {
+  const { buildServer } = await import("./api.ts");
+  const app = buildServer({
+    store: ctx.store,
+    profile: ctx.profile,
+    token: ctx.token,
+    outDir: ctx.paths.out,
+    snapshotsDir: ctx.paths.snapshots,
+    uiDir: null,
+    allowedHosts: ["cli"],
+  });
+  const res = await app.inject({
+    url: "/api/stats",
+    headers: { host: "cli", "x-ia-token": ctx.token },
+  });
+  const s = res.json() as OutcomeReport;
+  const pct = (x: number) => `${Math.round(x * 100)}%`;
+  console.log(`Sent ${s.totals.sent ?? 0}. Statuses: ${JSON.stringify(s.totals)}`);
+  for (const [title, rows] of [
+    ["By tier", s.byTier],
+    ["By score band", s.byScoreBand],
+    ["By source", s.bySource],
+    ["By ATS", s.byAts],
+  ] as const) {
+    console.log(`\n${title}`);
+    for (const r of rows)
+      console.log(
+        `  ${r.key.padEnd(16)} ${String(r.submitted).padStart(4)} sent  ${pct(r.rate).padStart(4)} replied  ${pct(r.positiveRate).padStart(4)} OA/interview/offer`,
+      );
+  }
+  if (s.dueSoon.length)
+    console.log(
+      `\nDue in the next 7 days:\n${s.dueSoon.map((d) => `  ${d.nextActionDue} ${d.company}: ${d.nextAction ?? ""}`).join("\n")}`,
+    );
+  if (s.suggestions.length)
+    console.log(`\nSuggestions:\n${s.suggestions.map((x) => `  ${x.text}`).join("\n")}`);
+  await app.close();
+});
+
+registerCommand("export", async (ctx, args) => {
+  const { values } = parseArgs({
+    args,
+    options: { out: { type: "string" }, format: { type: "string" } },
+    strict: false,
+  });
+  const { buildServer } = await import("./api.ts");
+  const { writeFileSync } = await import("node:fs");
+  const app = buildServer({
+    store: ctx.store,
+    profile: ctx.profile,
+    token: ctx.token,
+    outDir: ctx.paths.out,
+    snapshotsDir: ctx.paths.snapshots,
+    uiDir: null,
+    allowedHosts: ["cli"],
+  });
+  const format = values.format === "tsv" ? "tsv" : "csv";
+  const res = await app.inject({
+    url: `/api/export.csv?format=${format}`,
+    headers: { host: "cli", "x-ia-token": ctx.token },
+  });
+  const out = String(values.out ?? `${ctx.paths.home}/applications.${format}`);
+  writeFileSync(out, res.body);
+  console.log(`Wrote ${out}. In Google Sheets: File → Import → Upload.`);
+  await app.close();
+});
+
+registerCommand("email-sync", async (ctx, args) => {
+  const { values, positionals } = parseArgs({
+    args,
+    options: { "dry-run": { type: "boolean" } },
+    allowPositionals: true,
+    strict: false,
+  });
+  const path = positionals[0];
+  if (!path)
+    throw new Error(
+      "Usage: npm run ia -- email-sync <export.mbox | folder of .eml files> [--dry-run]",
+    );
+  const { syncEmails } = await import("./email-sync.ts");
+  const r = syncEmails(ctx.store, path, { dryRun: Boolean(values["dry-run"]) });
+  console.log(
+    `${r.read} emails read, ${r.matched} matched an application, ${r.updated.length} status change(s)${values["dry-run"] ? " (dry run)" : ""}`,
+  );
+  for (const u of r.updated) console.log(`  ${u.company}: ${u.from} → ${u.to}  ("${u.subject}")`);
 });

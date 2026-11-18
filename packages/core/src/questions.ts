@@ -50,7 +50,7 @@ const RULES: [RegExp, KnownField][] = [
   [/^(legal )?first[ _-]?name|given name/i, "first_name"],
   [/^(legal )?last[ _-]?name|family name|surname/i, "last_name"],
   [/preferred (first )?name|nickname/i, "preferred_name"],
-  [/^(full |legal )?name$|_systemfield_name|^your name/i, "full_name"],
+  [/^((your|full|legal) )*name$|_systemfield_name/i, "full_name"],
   [/^(your |confirm (your )?)?e-?mail( address)?\b|^e-?mail$/i, "email"],
   [/phone|mobile/i, "phone"],
   [/linkedin/i, "linkedin"],

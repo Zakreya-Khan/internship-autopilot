@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { makeApi } from "../src/api.ts";
 import type { NextResponse, SessionApi, SessionApplication, SessionState } from "../src/session.ts";
-import { SessionController } from "../src/session.ts";
+import { isSupportedUrl, SessionController } from "../src/session.ts";
 
 const app = (id: number): SessionApplication => ({
   id,
@@ -32,6 +32,7 @@ function harness(queue: number[]) {
       pending.splice(pending.indexOf(id), 1);
     }),
     abandon: vi.fn(async (id: number) => void calls.push(`abandon:${id}`)),
+    mapFields: vi.fn(async () => ({ fields: [] })),
   };
   const states: SessionState[] = [];
   const openTab = vi.fn(async (_url: string, reuse: number | null) => reuse ?? 7);
@@ -94,6 +95,33 @@ describe("SessionController", () => {
     await broken.start();
     expect(broken.get().phase).toBe("error");
     expect(broken.get().message).toMatch(/local server/);
+  });
+});
+
+describe("unknown sites", () => {
+  it("asks for the generic filler instead of injecting anything", async () => {
+    const { c, api } = harness([1]);
+    (api.next as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      done: false,
+      remaining: 1,
+      application: { ...app(1), applyUrl: "https://careers.small-startup.test/apply" },
+    });
+    await c.start();
+    expect(c.get()).toMatchObject({ phase: "filling", needsGeneric: true });
+    expect(c.get().message).toMatch(/Fill this page/);
+    await c.mapFields(7, [{ key: "ia-0", label: "Name", type: "text", required: true }]);
+    expect(api.mapFields).toHaveBeenCalledWith(1, [expect.objectContaining({ key: "ia-0" })]);
+    expect(c.get()).toMatchObject({
+      needsGeneric: false,
+      message: expect.stringMatching(/check every field/),
+    });
+  });
+
+  it("knows the supported career sites", () => {
+    expect(isSupportedUrl("https://acme.wd5.myworkdayjobs.com/x")).toBe(true);
+    expect(isSupportedUrl("https://jobs.lever.co/acme/1")).toBe(true);
+    expect(isSupportedUrl("https://evil-greenhouse.io.example.com/")).toBe(false);
+    expect(isSupportedUrl("not a url")).toBe(false);
   });
 });
 

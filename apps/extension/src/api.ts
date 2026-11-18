@@ -1,4 +1,4 @@
-import type { Mismatch, NextResponse, SessionApi } from "./session.ts";
+import type { MappedField, Mismatch, NextResponse, SessionApi } from "./session.ts";
 
 export interface ServerConfig {
   baseUrl: string;
@@ -38,5 +38,7 @@ export function makeApi(
     abandon: async (id) => {
       await call("POST", `/api/applications/${id}/abandon`);
     },
+    mapFields: (id, fields) =>
+      call<{ fields: MappedField[] }>("POST", `/api/applications/${id}/map-fields`, { fields }),
   };
 }

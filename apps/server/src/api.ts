@@ -2,8 +2,18 @@ import { timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import fastifyStatic from "@fastify/static";
-import type { ApplicationStatus, Posting, Profile } from "@ia/core";
-import { hasBlockingFlags, isSubmittedOrLater, questionKey, STATUSES } from "@ia/core";
+import type { ApplicationStatus, OutcomeRow, PageField, Posting, Profile } from "@ia/core";
+import type { LlmClient } from "@ia/ai";
+import { mapFieldsWithModel } from "@ia/ai";
+import {
+  hasBlockingFlags,
+  isSubmittedOrLater,
+  mapPageFieldsByRules,
+  outcomeReport,
+  questionKey,
+  STATUSES,
+  toDelimited,
+} from "@ia/core";
 import { renderCoverLetterPdf } from "@ia/render";
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -20,6 +30,8 @@ export interface ServerDeps {
   uiDir: string | null;
   /** Host headers accepted, e.g. ["127.0.0.1:4317", "localhost:4317"]. Blocks DNS rebinding. */
   allowedHosts: string[];
+  /** Only used to match fields on pages no adapter knows. Null: rules only. */
+  llm?: LlmClient | null;
   logger?: boolean;
 }
 
@@ -399,6 +411,102 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
 
   app.get("/api/cost", async () => store.costSummary());
+
+  // ---------- Phase 3: unknown sites, export, outcomes ----------
+  app.post<{ Params: { id: string }; Body: { fields: PageField[] } }>(
+    "/api/applications/:id/map-fields",
+    async (req) => {
+      const a = mustApp(req.params.id);
+      if (!["approved", "filled"].includes(a.status))
+        throw new HttpProblem(409, `application is ${a.status}`);
+      const page = (req.body?.fields ?? []).slice(0, 200);
+      const plan = store.listFieldFills(a.id).map((f) => ({
+        key: f.field_key,
+        label: f.label,
+        value: f.planned_value,
+        attach: f.attach,
+      }));
+      const { mapped, unmatched } = mapPageFieldsByRules(page, plan, profile);
+      if (deps.llm && unmatched.length) {
+        try {
+          const matches = await mapFieldsWithModel(deps.llm, unmatched, plan);
+          const byKey = new Map(plan.map((p) => [p.key, p]));
+          for (const f of unmatched) {
+            const p = matches.get(f.key) ? byKey.get(matches.get(f.key)!) : undefined;
+            mapped.push({
+              ...f,
+              options: f.options ?? null,
+              value: p?.value ?? null,
+              attach: p?.attach ?? null,
+              via: p ? "model" : "none",
+            });
+          }
+        } catch {
+          for (const f of unmatched)
+            mapped.push({ ...f, options: f.options ?? null, value: null, via: "none" });
+        }
+      } else {
+        for (const f of unmatched)
+          mapped.push({ ...f, options: f.options ?? null, value: null, via: "none" });
+      }
+      store.logEvent(a.id, "generic_map", {
+        page: page.length,
+        filled: mapped.filter((m) => m.value || m.attach).length,
+      });
+      return { fields: mapped };
+    },
+  );
+
+  const outcomeRows = (): (OutcomeRow & { appliedUrl: string; locations: string })[] =>
+    store.listApplications().map((a) => {
+      const p = postingOf(a);
+      return {
+        id: a.id,
+        company: p.company,
+        title: p.title,
+        status: a.status,
+        tier: a.tier,
+        score: store.getScore(p.id)?.fit?.score ?? null,
+        ats: p.ats,
+        sources: p.sources,
+        roleFamily: p.roleFamily,
+        submittedAt: a.submitted_at,
+        nextAction: a.next_action,
+        nextActionDue: a.next_action_due,
+        contact: a.contact,
+        appliedUrl: p.applyUrl,
+        locations: p.locations.join("; "),
+      };
+    });
+
+  app.get<{ Querystring: { format?: string } }>("/api/export.csv", async (req, reply) => {
+    const tsv = req.query.format === "tsv";
+    const cols = [
+      "id",
+      "company",
+      "title",
+      "status",
+      "tier",
+      "score",
+      "ats",
+      "locations",
+      "submittedAt",
+      "nextAction",
+      "nextActionDue",
+      "contact",
+      "appliedUrl",
+    ];
+    const body = toDelimited(outcomeRows(), cols, tsv ? "\t" : ",");
+    return reply
+      .type(tsv ? "text/tab-separated-values; charset=utf-8" : "text/csv; charset=utf-8")
+      .header("Content-Disposition", `attachment; filename="applications.${tsv ? "tsv" : "csv"}"`)
+      .send(body);
+  });
+
+  app.get("/api/stats", async () => ({
+    ...outcomeReport(outcomeRows()),
+    cost: store.costSummary(),
+  }));
 
   // ---------- review UI ----------
   if (deps.uiDir && existsSync(join(deps.uiDir, "index.html"))) {

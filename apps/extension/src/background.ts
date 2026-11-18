@@ -65,6 +65,19 @@ chrome.runtime.onMessage.addListener((msg: ToBackground, sender, reply) => {
       case "content:confirmed":
         await controller.onConfirmed(tabId, msg.url);
         break;
+      case "content:map":
+        reply(await controller.mapFields(tabId, msg.fields));
+        return;
+      case "session:inject": {
+        // Only after you granted this one site in the side panel (chrome.permissions.request).
+        const id = controller.get().tabId;
+        if (id !== null)
+          await chrome.scripting.executeScript({
+            target: { tabId: id, allFrames: true },
+            files: ["content.js"],
+          });
+        break;
+      }
       case "content:error":
         controller.note(tabId, msg.message);
         break;
