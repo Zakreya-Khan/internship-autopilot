@@ -34,6 +34,7 @@ export const KNOWN_FIELDS = [
   "start_date",
   "relocation",
   "how_heard",
+  "current_company",
 ] as const;
 export type KnownField = (typeof KNOWN_FIELDS)[number];
 
@@ -79,7 +80,17 @@ const RULES: [RegExp, KnownField][] = [
   [/(earliest |available )?start date|when can you start/i, "start_date"],
   [/relocat/i, "relocation"],
   [/how did you (hear|find|learn)|source of (your )?application|referred by a/i, "how_heard"],
+  [/^(current|present|most recent) (company|employer|organi[sz]ation)\b/i, "current_company"],
 ];
+
+/** "If yes, ..." and the like: only needed when an earlier answer calls for it. */
+export const FOLLOW_UP_REASON = "a follow-up to an earlier question";
+const FOLLOW_UP =
+  /^(if (yes|no|so|applicable|other|you (selected|chose|answered|checked|have|are|were|do|did|indicated))\b|if you['’]ve (selected|chosen|answered)\b)/i;
+
+/** Questions about you and this employer. Asked again at every company, on purpose. */
+const ABOUT_THIS_EMPLOYER =
+  /\bever (been )?(employed|worked)\b|(relatives?|family members?|spouses?|partners?|in-laws?)\b.{0,60}\b(work|employ)/i;
 
 const USER_ONLY: RegExp[] = [
   /receive (communications|messages|texts|updates)|\bsms\b|whatsapp|text messages|opt[- ]?in|marketing/i,
@@ -108,8 +119,14 @@ export function classifyQuestion(q: Pick<FormQuestion, "key" | "label" | "type">
   // (e.g. "Portfolio, Video, or Website Password").
   if (/pass(word|code|phrase)|\bpin\b|access code/i.test(text) || /password|passcode/.test(key))
     return { kind: "user_only", reason: "a password or access code; enter it yourself if needed" };
+  if (FOLLOW_UP.test(text)) return { kind: "user_only", reason: FOLLOW_UP_REASON };
   if (USER_ONLY.some((re) => re.test(text)))
     return { kind: "user_only", reason: "a statement only you can make" };
+  if (ABOUT_THIS_EMPLOYER.test(text))
+    return {
+      kind: "needs_you",
+      reason: "it asks about you and this company, so it's asked at every company",
+    };
   if (NEEDS_YOU.some((re) => re.test(text)))
     return { kind: "needs_you", reason: "needs a fact your profile doesn't have" };
   for (const [re, field] of RULES) {
@@ -132,7 +149,7 @@ export function questionKey(label: string): string {
 const YES = ["yes", "y", "true"];
 const NO = ["no", "n", "false"];
 const DECLINE =
-  /decline|prefer not|don['’]?t wish|do not wish|not to (say|disclose|answer)|choose not/i;
+  /decline|prefer not|rather not|don['’]?t wish|do not wish|not to (say|disclose|answer)|choose not|not declared|undeclared|not specified/i;
 
 /** Pick the option that best matches what we mean. Returns null rather than guess. */
 export function pickOption(options: string[] | undefined, wanted: string | boolean): string | null {
@@ -253,6 +270,10 @@ export function resolveKnownField(
       return profile.logistics.earliest_start ? monthYear(profile.logistics.earliest_start) : null;
     case "relocation":
       return opt(profile.logistics.relocation);
+    case "current_company": {
+      const now = profile.experience.find((x) => x.end === "present");
+      return now ? now.org : null;
+    }
     case "how_heard":
       return q.options?.length
         ? (opt(profile.logistics.how_heard) ?? opt("job board") ?? opt("other"))

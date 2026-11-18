@@ -117,6 +117,7 @@ describe("cover_letter_base", () => {
     expect(sys).toContain("sent word for word");
     expect(sys).toContain(LETTER.paragraphs[1]!);
     expect(sys).not.toContain("Sincerely, Alex Example");
+    expect(sys).toContain("It is not a source of facts");
     const cover = d.store.listDrafts(r.applicationId).find((x) => x.kind === "cover_letter")!;
     expect(cover.text.split("\n\n")).toEqual([
       LETTER.paragraphs[0],

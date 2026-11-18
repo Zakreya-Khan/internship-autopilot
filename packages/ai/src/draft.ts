@@ -127,7 +127,8 @@ ${entries}
 ${
   coverBase
     ? `
-The candidate's own cover letter, sent as written:
+The candidate's own cover letter, sent as written. It is not a source of facts: never repeat a claim from it
+in anything you write (answers, bullets, the added paragraph) unless a candidate fact below says the same.
 <letter>
 ${coverLetterBaseForModel(coverBase)}
 </letter>

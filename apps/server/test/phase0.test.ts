@@ -124,6 +124,14 @@ describe("runScoring", () => {
     const second = await runScoring({ store, profile, llm, fetch: routeFetch({}), now });
     expect(second).toMatchObject({ modelCalls: 0, reused: 2 });
     expect(llm.requests).toHaveLength(1);
+
+    // Changing only writing style (resume wording, your cover letter) doesn't rescore anything.
+    const restyled = {
+      ...profile,
+      style: { ...profile.style, resume_wording: "original" as const, cover_letter_base: "x.txt" },
+    };
+    const third = await runScoring({ store, profile: restyled, llm, fetch: routeFetch({}), now });
+    expect(third).toMatchObject({ modelCalls: 0, reused: 2 });
   });
 
   it("falls back to keywords when the model call fails", async () => {

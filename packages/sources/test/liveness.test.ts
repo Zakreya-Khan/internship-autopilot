@@ -292,3 +292,48 @@ describe("checkPostingOpen via each board's API", () => {
     expect((await checkPostingOpen(gh, opts(fn))).verdict).toBe("uncertain");
   });
 });
+
+describe("Workable and BambooHR", () => {
+  const wk = (code: string): LivenessRef => ({
+    ats: "other",
+    boardToken: null,
+    atsJobId: null,
+    applyUrl: `https://apply.workable.com/example-co/j/${code}/apply`,
+  });
+  const job = "https://apply.workable.com/api/v2/accounts/example-co/jobs/";
+  const board = "https://apply.workable.com/api/v1/widget/accounts/example-co";
+
+  it("Workable: reads the job's state, and a 404 is closed only when the board agrees", async () => {
+    const { fn, calls } = routes({
+      [`${job}AAA111`]: { body: { shortcode: "AAA111", state: "published" } },
+      [`${job}BBB222`]: { body: { shortcode: "BBB222", state: "closed" } },
+      [`${job}CCC333`]: { status: 404 },
+      [`${job}DDD444`]: { status: 404 },
+      [board]: { body: { jobs: [{ shortcode: "DDD444" }, { shortcode: "AAA111" }] } },
+      "https://apply.workable.com/example-co/j/DDD444": { status: 200, body: "<html></html>" },
+    });
+    const o = { ...opts(fn), boardCache: new Map() };
+    expect((await checkPostingOpen(wk("AAA111"), o)).code).toBe("workable_api_published");
+    expect((await checkPostingOpen(wk("BBB222"), o)).verdict).toBe("expired");
+    expect((await checkPostingOpen(wk("CCC333"), o)).code).toBe("workable_api_gone");
+    // 404 from the job API but still on the board: no definite answer from the API.
+    expect((await checkPostingOpen(wk("DDD444"), o)).verdict).toBe("uncertain");
+    expect(calls.filter((c) => c === board)).toHaveLength(1);
+  });
+
+  it("BambooHR: listed is open; closed needs off the list and no detail", async () => {
+    const ref = (id: string): LivenessRef => ({
+      ats: "other",
+      boardToken: null,
+      atsJobId: null,
+      applyUrl: `https://exampleco.bamboohr.com/careers/${id}`,
+    });
+    const { fn } = routes({
+      "https://exampleco.bamboohr.com/careers/list": { body: { result: [{ id: "61" }] } },
+      "https://exampleco.bamboohr.com/careers/70/detail": { status: 404 },
+    });
+    const o = { ...opts(fn), boardCache: new Map() };
+    expect((await checkPostingOpen(ref("61"), o)).code).toBe("bamboohr_api_listed");
+    expect((await checkPostingOpen(ref("70"), o)).code).toBe("bamboohr_api_gone");
+  });
+});

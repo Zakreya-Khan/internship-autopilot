@@ -111,7 +111,8 @@ export async function runScoring(
 ): Promise<ScoringReport> {
   const { store, profile, llm } = deps;
   const now = deps.now?.() ?? new Date();
-  const profileHash = shortHash(JSON.stringify(profile));
+  // Writing style (resume wording, cover letter, samples) doesn't change fit, so it isn't hashed.
+  const profileHash = shortHash(JSON.stringify({ ...profile, style: null }));
   const report: ScoringReport = { considered: 0, passed: 0, dropped: 0, modelCalls: 0, reused: 0 };
   await mapLimit(store.openPostings(), opts.concurrency ?? 4, async (posting) => {
     report.considered++;

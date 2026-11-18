@@ -1,5 +1,5 @@
 import type { Profile } from "./profile.ts";
-import { classifyQuestion, questionKey, resolveKnownField } from "./questions.ts";
+import { classifyQuestion, FOLLOW_UP_REASON, questionKey, resolveKnownField } from "./questions.ts";
 import type { FormQuestion } from "./types.ts";
 
 export type FillSource = "profile" | "bank" | "drafted" | "you" | "mapped";
@@ -155,6 +155,18 @@ export function buildFillPlan(
         note: q.options?.length
           ? "None of the options matches your profile exactly."
           : "Your profile has no value for this.",
+      };
+    }
+    if (cls.kind === "user_only" && cls.reason === FOLLOW_UP_REASON) {
+      return {
+        ...base,
+        value: null,
+        source: "you",
+        confidence: "high",
+        flag: q.required ? "red" : "grey",
+        note: q.required
+          ? "Needs you: a follow-up this form requires."
+          : "Only needed if your answer above calls for it.",
       };
     }
     if (cls.kind === "user_only") {

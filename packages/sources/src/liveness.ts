@@ -385,6 +385,97 @@ async function smartRecruitersRung(
   }
 }
 
+/** A JSON body, or null for anything else (an error page, a firewall, bad JSON). */
+async function jsonOf<T>(r: RawResponse | null): Promise<T | null> {
+  if (!r || r.status !== 200) return null;
+  try {
+    return JSON.parse(await r.text()) as T;
+  } catch {
+    return null;
+  }
+}
+
+/** One board listing per run, shared by every job on that board. */
+async function cachedList<T>(
+  url: string,
+  opts: LivenessOptions,
+  read: (body: unknown) => T | null,
+): Promise<T | null> {
+  if (opts.boardCache?.has(url)) return opts.boardCache.get(url) as T | null;
+  const body = await jsonOf<unknown>(
+    await rawGet(url, { ...opts, timeoutMs: opts.timeoutMs ?? 20_000 }),
+  );
+  const list = body === null ? null : read(body);
+  opts.boardCache?.set(url, list);
+  return list;
+}
+
+/**
+ * Workable (apply.workable.com/<account>/j/<shortcode>). The job API gives its state; a 404 counts
+ * as closed only if the account's public board no longer lists the shortcode either.
+ */
+async function workableRung(
+  ref: LivenessRef,
+  opts: LivenessOptions,
+): Promise<LivenessResult | null> {
+  const u = new URL(ref.applyUrl);
+  if (u.hostname !== "apply.workable.com") return null;
+  const m = /^\/([^/]+)\/j\/([A-Za-z0-9]+)(?:\/apply)?\/?$/.exec(u.pathname);
+  if (!m || !safe(m[1]) || !safe(m[2])) return null;
+  const [account, code] = [m[1]!, m[2]!.toUpperCase()];
+  const r = await rawGet(
+    `https://apply.workable.com/api/v2/accounts/${account}/jobs/${code}`,
+    opts,
+  );
+  if (!r) return null;
+  if (r.status === 200) {
+    const j = await jsonOf<{ shortcode?: string; state?: string }>(r);
+    if (!j || String(j.shortcode).toUpperCase() !== code || typeof j.state !== "string")
+      return null;
+    return j.state === "published"
+      ? api("active", "workable_api_published", "Workable says it's published")
+      : api("expired", "workable_api_state", `Workable says the job is ${j.state}`);
+  }
+  if (r.status !== 404 && r.status !== 410) return null;
+  const codes = await cachedList(
+    `https://apply.workable.com/api/v1/widget/accounts/${account}`,
+    opts,
+    (body) => {
+      const jobs = (body as { jobs?: { shortcode?: unknown }[] }).jobs;
+      return Array.isArray(jobs) && jobs.length
+        ? new Set(jobs.map((j) => String(j?.shortcode).toUpperCase()))
+        : null;
+    },
+  );
+  if (!codes || codes.has(code)) return null;
+  return api(
+    "expired",
+    "workable_api_gone",
+    "Workable no longer has it and the board doesn't list it",
+  );
+}
+
+/**
+ * BambooHR (<company>.bamboohr.com/careers/<id>). Listed on the careers list means open; closed
+ * needs both: off the list, and the job's detail no longer served.
+ */
+async function bambooRung(ref: LivenessRef, opts: LivenessOptions): Promise<LivenessResult | null> {
+  const u = new URL(ref.applyUrl);
+  const host = /^([a-z0-9-]+)\.bamboohr\.com$/i.exec(u.hostname)?.[1];
+  const m = /^\/careers\/(\d+)(?:\/detail)?\/?$/.exec(u.pathname);
+  if (!host || !m) return null;
+  const ids = await cachedList(`https://${host}.bamboohr.com/careers/list`, opts, (body) => {
+    const rows = (body as { result?: { id?: unknown }[] }).result;
+    return Array.isArray(rows) ? new Set(rows.map((x) => String(x?.id))) : null;
+  });
+  if (!ids) return null;
+  if (ids.has(m[1]!))
+    return api("active", "bamboohr_api_listed", "listed on the BambooHR careers list");
+  const d = await rawGet(`https://${host}.bamboohr.com/careers/${m[1]}/detail`, opts);
+  if (!d || d.status === 200 || d.status >= 500 || d.status === 429) return null;
+  return api("expired", "bamboohr_api_gone", "no longer on the BambooHR careers list or served");
+}
+
 /** The job board's API verdict, or null when it has nothing definite to say. */
 export async function checkViaApi(
   ref: LivenessRef,
@@ -410,7 +501,7 @@ export async function checkViaApi(
       case "smartrecruiters":
         return await smartRecruitersRung(ref, opts);
       default:
-        return null;
+        return (await workableRung(ref, opts)) ?? (await bambooRung(ref, opts));
     }
   } catch {
     return null;
