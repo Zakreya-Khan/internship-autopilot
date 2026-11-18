@@ -24,3 +24,9 @@ jobs:
       - run: npm test
       - name: Audit runtime dependencies
         run: npm audit --omit=dev
+      - name: Build the review UI and the extension
+        run: npm run build
+      - name: Install Chromium for end-to-end tests
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end tests
+        run: npm run test:e2e

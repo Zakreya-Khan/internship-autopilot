@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Internship Autopilot options</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <h1>Connect to your local server</h1>
+    <form id="form">
+      <label>Server <input id="baseUrl" placeholder="http://127.0.0.1:4317" /></label>
+      <label>Token <input id="token" autocomplete="off" /></label>
+      <p class="muted">The token is printed by <code>npm run ia -- init</code>.</p>
+      <button type="submit">Save</button>
+    </form>
+    <p id="status" role="status"></p>
+    <script src="options.js" type="module"></script>
+  </body>
+</html>

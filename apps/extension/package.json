@@ -9,5 +9,8 @@
   "dependencies": {
     "@ia/adapters": "^0.1.0",
     "@ia/core": "^0.1.0"
+  },
+  "scripts": {
+    "build": "tsx scripts/build.ts"
   }
 }

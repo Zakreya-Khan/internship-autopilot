@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- Fictional fixture modeled on a Lever application page. -->
+<html><head><meta charset="utf-8"><title>Acme - Data Intern</title></head>
+<body>
+<div class="application-page">
+<form id="application-form" class="application-form" method="post">
+  <div class="application-question"><label for="resume-upload">Resume/CV</label><input id="resume-upload" type="file" name="resume"></div>
+  <div class="application-question"><label for="name">Full name</label><input id="name" name="name" type="text"></div>
+  <div class="application-question"><label for="email-in">Email</label><input id="email-in" name="email" type="email"></div>
+  <div class="application-question"><label for="phone-in">Phone</label><input id="phone-in" name="phone" type="text"></div>
+  <div class="application-question"><label for="loc">Current location</label><input id="loc" name="location" type="text"></div>
+  <div class="application-question"><label for="li">LinkedIn URL</label><input id="li" name="urls[LinkedIn]" type="text"></div>
+  <div class="application-question">
+    <div class="application-label">Are you legally authorized to work in the United States?</div>
+    <ul>
+      <li><label><input type="radio" name="cards[c1][field0]" value="Yes"> Yes</label></li>
+      <li><label><input type="radio" name="cards[c1][field0]" value="No"> No</label></li>
+    </ul>
+  </div>
+  <div class="application-question"><label for="comments">Additional information</label><textarea id="comments" name="comments"></textarea></div>
+  <button type="submit" id="btn-submit" data-qa="btn-submit">Submit application</button>
+</form>
+</div>
+</body></html>

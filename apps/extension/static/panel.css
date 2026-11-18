@@ -1,0 +1,58 @@
+:root {
+  color-scheme: light dark;
+  --accent: #2457c5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: #7aa2ff;
+  }
+}
+body {
+  font:
+    14px/1.5 system-ui,
+    sans-serif;
+  margin: 16px;
+}
+h1 {
+  font-size: 17px;
+}
+.rule {
+  font-weight: 600;
+}
+.muted {
+  opacity: 0.75;
+}
+.app {
+  font-weight: 600;
+}
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+button {
+  font: inherit;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: Canvas;
+  cursor: pointer;
+}
+button.quiet {
+  background: transparent;
+  color: var(--accent);
+}
+label {
+  display: block;
+  margin: 8px 0;
+}
+input {
+  display: block;
+  width: 100%;
+  font: inherit;
+  padding: 6px;
+}
+ul {
+  padding-left: 18px;
+}

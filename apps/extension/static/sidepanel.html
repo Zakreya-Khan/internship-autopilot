@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Submit session</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <h1>Submit session</h1>
+    <p class="rule">The extension fills forms. You press each site's Submit button.</p>
+    <p id="phase" role="status"></p>
+    <p id="app" class="app"></p>
+    <p id="message"></p>
+    <ul id="issues"></ul>
+    <p id="counts" class="muted"></p>
+    <div class="buttons">
+      <button id="start">Start session</button>
+      <button id="confirm" hidden>It went through</button>
+      <button id="skip" hidden class="quiet">Skip this one</button>
+      <button id="end" hidden class="quiet">End session</button>
+    </div>
+    <script src="sidepanel.js" type="module"></script>
+  </body>
+</html>

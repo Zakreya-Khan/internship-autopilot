@@ -1,0 +1,30 @@
+<!doctype html>
+<!-- Fictional fixture modeled on a Greenhouse job-board application form. No real company or person. -->
+<html><head><meta charset="utf-8"><title>Example Co - Software Engineering Intern</title></head>
+<body>
+<h1>Software Engineering Intern</h1>
+<form id="application-form" action="/exampleco/jobs/123" method="post">
+  <div class="field"><label for="first_name">First Name <span>*</span></label><input id="first_name" name="first_name" type="text" required></div>
+  <div class="field"><label for="last_name">Last Name *</label><input id="last_name" name="last_name" type="text" required></div>
+  <div class="field"><label for="email">Email *</label><input id="email" name="email" type="email" required></div>
+  <div class="field"><label for="phone">Phone</label><input id="phone" name="phone" type="tel"></div>
+  <div class="field"><label for="resume">Resume/CV *</label><input id="resume" name="resume" type="file" accept=".pdf,.doc,.docx"></div>
+  <div class="field"><label for="question_1">Why do you want to work at Example Co? *</label><textarea id="question_1" name="question_1"></textarea></div>
+  <div class="field"><label for="question_2">Will you require visa sponsorship? *</label>
+    <select id="question_2" name="question_2"><option value="">Select...</option><option value="1">Yes</option><option value="0">No</option></select></div>
+  <div class="field"><label for="password_trap">Create a password</label><input id="password_trap" name="password_trap" type="password"></div>
+  <div class="field"><label for="gender">Gender</label>
+    <select id="gender" name="gender"><option value="">Select...</option><option value="1">Male</option><option value="2">Female</option><option value="3">I don't wish to answer</option></select></div>
+  <div class="field"><label><input type="checkbox" id="privacy" name="privacy"> I acknowledge the privacy notice</label></div>
+  <button type="submit" id="submit_app">Submit application</button>
+</form>
+<script>
+  // Fixture behaviour only: what the real site does after the applicant presses Submit.
+  window.__submitted = 0;
+  document.getElementById("application-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    window.__submitted++;
+    document.body.innerHTML = "<h1>Thank you for applying to Example Co!</h1><p>Your application has been submitted.</p>";
+  });
+</script>
+</body></html>
