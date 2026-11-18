@@ -114,10 +114,12 @@ describe("cover_letter_base", () => {
     d.store.savePostings([posting]);
     const r = await prepareOne(d, posting, "A");
     const sys = llm.requests[0]!.system;
+    const user = llm.requests[0]!.user;
     expect(sys).toContain("sent word for word");
-    expect(sys).toContain(LETTER.paragraphs[1]!);
-    expect(sys).not.toContain("Sincerely, Alex Example");
-    expect(sys).toContain("It is not a source of facts");
+    expect(sys).not.toContain(LETTER.paragraphs[1]!);
+    expect(user).toContain(LETTER.paragraphs[1]!);
+    expect(user).not.toContain("Sincerely, Alex Example");
+    expect(user).toContain("It is not a source of facts");
     const cover = d.store.listDrafts(r.applicationId).find((x) => x.kind === "cover_letter")!;
     expect(cover.text.split("\n\n")).toEqual([
       LETTER.paragraphs[0],
@@ -174,6 +176,9 @@ describe("cost: nothing to write", () => {
     d.store.savePostings([posting]);
     await prepareOne(d, posting, "B");
     expect(llm.requests.find((q) => q.purpose === "draft")!.model).toBe("claude-haiku-5-5");
+    // No cover letter on this form, so your letter isn't sent at all.
+    expect(llm.requests[0]!.user).not.toContain(LETTER.paragraphs[1]!);
+    expect(llm.requests[0]!.system).not.toContain(LETTER.paragraphs[1]!);
   });
 
   it("keeps the usual model when there is a cover letter or a question to write", async () => {

@@ -110,7 +110,7 @@ ${
 7. Respect each question's character limit.
 ${
   coverBase
-    ? `8. Cover letter, when asked: the candidate wrote their own letter (below) and it is sent word for word. Don't rewrite or repeat it.
+    ? `8. Cover letter, when asked: the candidate wrote their own letter (it comes with the request) and it is sent word for word. Don't rewrite or repeat it.
    Write exactly one short paragraph to add to it for this posting: 2 or 3 sentences, at most ${ADDED_PARAGRAPH_WORDS} words.
    Name the company and the role, and connect one or two of the candidate's facts to something specific the posting asks for.
    Match the letter's voice. It goes before the letter's last paragraph. Return it as the only item in cover_letter.`
@@ -124,17 +124,7 @@ ${voicePrompt(voice)}
 
 Entries and their fact ids:
 ${entries}
-${
-  coverBase
-    ? `
-The candidate's own cover letter, sent as written. It is not a source of facts: never repeat a claim from it
-in anything you write (answers, bullets, the added paragraph) unless a candidate fact below says the same.
-<letter>
-${coverLetterBaseForModel(coverBase)}
-</letter>
-`
-    : ""
-}
+
 ${profileForModel(profile)}`;
 }
 
@@ -159,6 +149,18 @@ Open questions to answer:
 ${qs}
 
 Cover letter wanted: ${req.coverLetter ? "yes" : "no"}${
+    // Your letter goes only to drafts that write a cover letter, so its claims can't leak into
+    // answers elsewhere.
+    req.coverLetter && req.coverBase
+      ? `
+
+The candidate's own cover letter, sent as written. It is not a source of facts: never repeat a claim
+from it in your paragraph unless a candidate fact says the same.
+<letter>
+${coverLetterBaseForModel(req.coverBase)}
+</letter>`
+      : ""
+  }${
     req.revisionNotes?.length
       ? `
 
