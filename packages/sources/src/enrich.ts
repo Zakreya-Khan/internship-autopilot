@@ -45,7 +45,8 @@ export async function fetchPostingDetail(
         }
       : null;
   }
-  const token = p.boardToken!;
+  // Board slugs from links can arrive URL-encoded ("acme%20labs"); encode them once, not twice.
+  const token = safeDecode(p.boardToken!);
   const id = p.atsJobId!;
   if (p.ats === "greenhouse") return fetchGreenhouseDetail(token, id, opts);
   if (p.ats === "lever") {
@@ -68,4 +69,12 @@ export async function fetchPostingDetail(
   return job
     ? { descriptionText: job.descriptionPlain ?? null, questions: null, deadline: null }
     : null;
+}
+
+function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
 }

@@ -184,7 +184,11 @@ export async function runEnrichment(
     .slice(0, opts.limit ?? 150);
   const report: EnrichReport = { tried: todo.length, enriched: 0, failed: 0 };
   const ashbyCache = new Map();
+  // Workday turns automated clients away with HTTP 429. Once it does, leave it alone this run
+  // rather than retrying every posting (the description is only needed for scoring).
+  let workdayRefused = false;
   for (const p of todo) {
+    if (p.ats === "workday" && workdayRefused) continue;
     try {
       const d = await fetchPostingDetail(p, http, ashbyCache);
       if (!d) continue;
@@ -202,6 +206,13 @@ export async function runEnrichment(
       report.enriched++;
     } catch (e) {
       report.failed++;
+      if (p.ats === "workday" && /HTTP 429/.test(String(e))) {
+        workdayRefused = true;
+        deps.log?.(
+          "Workday is refusing automated requests (HTTP 429); skipping Workday details this run",
+        );
+        continue;
+      }
       deps.log?.(`could not fetch details for ${p.id}: ${String(e)}`);
     }
   }

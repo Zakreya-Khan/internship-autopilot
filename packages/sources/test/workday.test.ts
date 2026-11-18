@@ -82,6 +82,7 @@ describe("fetchWorkdayBoard", () => {
       "Example Co",
       http(fn),
       NOW,
+      ["intern"],
     );
     expect(calls).toHaveLength(2);
     expect(calls[0]!.url).toBe(
@@ -108,10 +109,41 @@ describe("fetchWorkdayBoard", () => {
     expect(rows[1]!.locations).toEqual(["Santa Clara, CA"]);
   });
 
+  it("searches each term, stops at a page with no internships, and dedupes across terms", async () => {
+    const { fn, calls } = recorder((_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { offset: number; searchText: string };
+      const titles =
+        body.offset === 0 ? ["Software Intern", "Data Intern"] : ["International Tax Lead"];
+      return Response.json({
+        total: body.offset === 0 ? 100 : 0,
+        jobPostings: Array.from({ length: 20 }, (_, i) => ({
+          title: titles[i % titles.length],
+          externalPath: `/job/X/${titles[i % titles.length]!.replace(/ /g, "-")}_JR${body.offset + i}`,
+        })),
+      });
+    });
+    const rows = await fetchWorkdayBoard(
+      "https://exampleco.wd5.myworkdayjobs.com/Careers",
+      "Example Co",
+      http(fn),
+      NOW,
+    );
+    // Two terms, two pages each: page 2 has no internships, so paging stops there.
+    expect(calls.map((c) => JSON.parse(String(c.init?.body)).searchText)).toEqual([
+      "intern",
+      "intern",
+      "internship",
+      "internship",
+    ]);
+    expect(rows).toHaveLength(20);
+  });
+
   it("stops on a short page even without a total", async () => {
     const { fn, calls } = recorder(() => Response.json({ jobPostings: [] }));
     expect(
-      await fetchWorkdayBoard("https://a.wd1.myworkdayjobs.com/Ext", "A", http(fn), NOW),
+      await fetchWorkdayBoard("https://a.wd1.myworkdayjobs.com/Ext", "A", http(fn), NOW, [
+        "intern",
+      ]),
     ).toEqual([]);
     expect(calls).toHaveLength(1);
   });
@@ -224,5 +256,18 @@ describe("pollSources with Workday", () => {
         applyUrl: "https://exampleco.wd5.myworkdayjobs.com/Other/job/Y_JR2",
       }),
     ).toBe(false);
+  });
+});
+
+describe("Ashby slugs with spaces", () => {
+  it("are encoded once", async () => {
+    const { fn, calls } = recorder(() =>
+      Response.json({ jobs: [{ id: "j1", descriptionPlain: "x" }] }),
+    );
+    await fetchPostingDetail(
+      { ats: "ashby", boardToken: "latent%20labs", atsJobId: "j1" },
+      http(fn),
+    );
+    expect(calls[0]!.url).toBe("https://api.ashbyhq.com/posting-api/job-board/latent%20labs");
   });
 });

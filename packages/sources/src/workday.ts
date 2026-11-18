@@ -131,44 +131,52 @@ export function mapWorkdayPosting(
 }
 
 export const WORKDAY_PAGE_SIZE = 20;
-/** Workday answers at most a few thousand rows per site; internships are a small slice of that. */
-export const WORKDAY_MAX_PAGES = 50;
+/** Per search term. Results are relevance-ranked, so internships come first. */
+export const WORKDAY_MAX_PAGES = 15;
+/** Workday's search is fuzzy ("intern" also finds "international"), so ask twice. */
+export const WORKDAY_SEARCHES = ["intern", "internship"];
 
 /**
- * Internship postings on one Workday site. Searches "intern" server-side first, which keeps a
- * large employer to a page or two, then filters titles locally the same way as every source.
+ * Internship postings on one Workday site. Searches server-side, pages through the ranked
+ * results, and stops at the first page with no internship titles on it. Titles are then
+ * filtered locally the same way as every other source.
  */
 export async function fetchWorkdayBoard(
   careersUrl: string,
   company: string,
   opts: GetJsonOptions,
   now: Date = new Date(),
-  searchText = "intern",
+  searches: string[] = WORKDAY_SEARCHES,
 ): Promise<RawPosting[]> {
   const site = parseWorkdayUrl(careersUrl);
   if (!site) throw new Error(`Not a Workday careers URL: ${careersUrl}`);
   const url = `${workdayApiBase(site)}/jobs`;
   const out: RawPosting[] = [];
   const seen = new Set<string>();
-  let total = Infinity;
-  for (let page = 0; page < WORKDAY_MAX_PAGES; page++) {
-    const offset = page * WORKDAY_PAGE_SIZE;
-    if (offset >= total) break;
-    const data = await postJson<WdListResponse>(
-      url,
-      { appliedFacets: {}, limit: WORKDAY_PAGE_SIZE, offset, searchText },
-      opts,
-    );
-    // Workday reports the total on the first page only; later pages say 0.
-    if (page === 0) total = data.total ?? 0;
-    const rows = data.jobPostings ?? [];
-    for (const j of rows) {
-      const p = mapWorkdayPosting(j, site, company, now);
-      if (!p || !isInternshipTitle(p.title) || seen.has(p.applyUrl)) continue;
-      seen.add(p.applyUrl);
-      out.push(p);
+  for (const searchText of searches) {
+    let total = Infinity;
+    for (let page = 0; page < WORKDAY_MAX_PAGES; page++) {
+      const offset = page * WORKDAY_PAGE_SIZE;
+      if (offset >= total) break;
+      const data = await postJson<WdListResponse>(
+        url,
+        { appliedFacets: {}, limit: WORKDAY_PAGE_SIZE, offset, searchText },
+        opts,
+      );
+      // Workday reports the total on the first page only; later pages say 0.
+      if (page === 0) total = data.total ?? 0;
+      const rows = data.jobPostings ?? [];
+      let interns = 0;
+      for (const j of rows) {
+        const p = mapWorkdayPosting(j, site, company, now);
+        if (!p || !isInternshipTitle(p.title)) continue;
+        interns++;
+        if (seen.has(p.applyUrl)) continue;
+        seen.add(p.applyUrl);
+        out.push(p);
+      }
+      if (rows.length < WORKDAY_PAGE_SIZE || (page > 0 && interns === 0)) break;
     }
-    if (rows.length < WORKDAY_PAGE_SIZE) break;
   }
   return out;
 }

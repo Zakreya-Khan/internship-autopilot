@@ -1,0 +1,22 @@
+<!doctype html>
+<!-- Fictional fixture modeled on an iCIMS candidate application page (signed in, questions step). -->
+<html><head><meta charset="utf-8"><title>Careers - Example Co - Software Intern</title></head>
+<body>
+<div class="iCIMS_MainWrapper">
+<form id="questionForm" class="iCIMS_Forms" method="post">
+  <div class="iCIMS_TableRow"><label for="PersonProfileFields.FirstName">First Name</label><input id="PersonProfileFields.FirstName" name="PersonProfileFields.FirstName" type="text"></div>
+  <div class="iCIMS_TableRow"><label for="PersonProfileFields.LastName">Last Name</label><input id="PersonProfileFields.LastName" name="PersonProfileFields.LastName" type="text"></div>
+  <div class="iCIMS_TableRow"><label for="PersonProfileFields.Email">Email</label><input id="PersonProfileFields.Email" name="PersonProfileFields.Email" type="email"></div>
+  <div class="iCIMS_TableRow"><label for="resume_upload">Resume</label><input id="resume_upload" name="resume_upload" type="file"></div>
+  <button type="button" id="submit_btn">Submit</button>
+</form>
+</div>
+<script>
+  // Fixture behaviour only: what the real site does after the applicant presses Submit.
+  window.__submitted = 0;
+  document.getElementById("submit_btn").addEventListener("click", function () {
+    window.__submitted++;
+    document.body.innerHTML = "<h1>Thank you for applying</h1><p>Your application has been submitted.</p>";
+  });
+</script>
+</body></html>
