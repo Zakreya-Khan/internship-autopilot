@@ -65,6 +65,7 @@ eeo:
 logistics:
   earliest_start: 2027-05
   relocation: true
+  how_heard: "Online job board"
 
 # Your own reusable answers. The AI may shorten and rephrase them, but not add facts.
 answer_bank:

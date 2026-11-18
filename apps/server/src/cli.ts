@@ -23,6 +23,11 @@ Phase 0
   list [--tier A|B|C] [--limit N]
                        Show ranked candidates
   cost                 Model spend so far, by purpose
+Phase 1
+  prep [--limit N] [--tier A,B] [--sonnet]
+                       Tailor, truth-check and plan the best unprepared postings
+  serve [--port N] [--auto]
+                       Review UI + extension API on 127.0.0.1 (--auto: refresh + prep every 6 h)
 Options
   --offline            Never call the Claude API (keyword scoring, no drafting)
 `;

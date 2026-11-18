@@ -90,8 +90,10 @@ export const ProfileSchema = z.object({
     .object({
       earliest_start: yearMonth.nullable().default(null),
       relocation: z.boolean().default(true),
+      /** Your honest answer to "How did you hear about us?" */
+      how_heard: z.string().default("Online job board"),
     })
-    .default({ earliest_start: null, relocation: true }),
+    .default({ earliest_start: null, relocation: true, how_heard: "Online job board" }),
   answer_bank: z
     .array(z.object({ id: factId, prompt: z.string(), answer: z.string() }))
     .default([]),

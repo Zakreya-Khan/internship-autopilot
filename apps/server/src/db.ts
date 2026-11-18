@@ -3,7 +3,11 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type {
   ApplicationStatus,
+  Confidence,
+  FillEntry,
+  FillSource,
   FitScore,
+  Flag,
   FormQuestion,
   Posting,
   Tier,
@@ -140,6 +144,12 @@ const MIGRATIONS: string[] = [
     collected_at TEXT
   );
   `,
+  `
+  ALTER TABLE field_fills ADD COLUMN note TEXT;
+  ALTER TABLE field_fills ADD COLUMN required INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE field_fills ADD COLUMN options TEXT;
+  ALTER TABLE field_fills ADD COLUMN attach TEXT;
+  `,
 ];
 
 export type Row = Record<string, unknown>;
@@ -171,10 +181,6 @@ export interface ScoreRow {
   scored_at: string;
 }
 
-export type FillSource = "profile" | "bank" | "drafted" | "you" | "mapped";
-export type Confidence = "high" | "medium" | "low";
-export type FlagLevel = "red" | "amber" | "grey" | null;
-
 export interface FieldFillRow {
   application_id: number;
   field_key: string;
@@ -183,7 +189,11 @@ export interface FieldFillRow {
   planned_value: string | null;
   source: FillSource;
   confidence: Confidence;
-  flag: FlagLevel;
+  flag: Flag;
+  note: string | null;
+  required: boolean;
+  options: string[] | null;
+  attach: "resume" | "cover_letter" | null;
   value_seen: string | null;
 }
 
@@ -569,46 +579,63 @@ export class Store {
       .run(text, this.now(), draftId);
   }
 
-  replaceFieldFills(
-    applicationId: number,
-    fills: Omit<FieldFillRow, "application_id" | "value_seen">[],
-  ): void {
+  replaceFieldFills(applicationId: number, fills: FillEntry[]): void {
     const now = this.now();
     this.transaction(() => {
       this.db
         .prepare("DELETE FROM field_fills WHERE application_id = ? AND source != 'you'")
         .run(applicationId);
       const stmt = this.db
-        .prepare(`INSERT INTO field_fills (application_id, field_key, label, field_type, planned_value, source, confidence, flag, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(application_id, field_key) DO NOTHING`);
-      for (const f of fills)
+        .prepare(`INSERT INTO field_fills (application_id, field_key, label, field_type,
+          planned_value, source, confidence, flag, note, required, options, attach, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(application_id, field_key) DO NOTHING`);
+      for (const f of fills) {
         stmt.run(
           applicationId,
-          f.field_key,
+          f.key,
           f.label,
-          f.field_type,
-          f.planned_value,
+          f.type,
+          f.value,
           f.source,
           f.confidence,
           f.flag,
+          f.note,
+          f.required ? 1 : 0,
+          f.options ? json(f.options) : null,
+          f.attach ?? null,
           now,
         );
+      }
     });
   }
 
   listFieldFills(applicationId: number): FieldFillRow[] {
-    return this.db
-      .prepare(
-        "SELECT application_id, field_key, label, field_type, planned_value, source, confidence, flag, value_seen FROM field_fills WHERE application_id = ? ORDER BY id",
-      )
-      .all(applicationId) as unknown as FieldFillRow[];
+    return (
+      this.db
+        .prepare("SELECT * FROM field_fills WHERE application_id = ? ORDER BY id")
+        .all(applicationId) as Row[]
+    ).map((r) => ({
+      application_id: Number(r.application_id),
+      field_key: String(r.field_key),
+      label: String(r.label),
+      field_type: r.field_type as FormQuestion["type"],
+      planned_value: (r.planned_value as string | null) ?? null,
+      source: r.source as FillSource,
+      confidence: r.confidence as Confidence,
+      flag: (r.flag as Flag) ?? null,
+      note: (r.note as string | null) ?? null,
+      required: Number(r.required) === 1,
+      options: parse(r.options, null),
+      attach: (r.attach as FieldFillRow["attach"]) ?? null,
+      value_seen: (r.value_seen as string | null) ?? null,
+    }));
   }
 
   /** Your own value for a field. It is never overwritten by a later re-prep. */
   setFieldByUser(applicationId: number, fieldKey: string, value: string): void {
     this.db
       .prepare(
-        "UPDATE field_fills SET planned_value = ?, source = 'you', confidence = 'high', flag = NULL, updated_at = ? WHERE application_id = ? AND field_key = ?",
+        "UPDATE field_fills SET planned_value = ?, source = 'you', confidence = 'high', flag = NULL, note = NULL, updated_at = ? WHERE application_id = ? AND field_key = ?",
       )
       .run(value, this.now(), applicationId, fieldKey);
   }
