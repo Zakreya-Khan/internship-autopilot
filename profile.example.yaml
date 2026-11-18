@@ -18,7 +18,7 @@ education:
     degree: "B.S."
     major: "Computer Science"
     grad: 2028-05
-    gpa: null            # filled verbatim only if you set it; never rephrased
+    gpa: null # filled verbatim only if you set it; never rephrased
     courses: [data-structures, algorithms, databases, machine-learning]
 
 experience:
@@ -31,7 +31,7 @@ experience:
       - id: exp.lab.f1
         text: "Built a Python pipeline that cleaned three years of sensor data"
         tools: [python, pandas]
-        verified_metric: null   # a number appears only if you put it here
+        verified_metric: null # a number appears only if you put it here
 
 projects:
   - id: proj.app
@@ -53,6 +53,7 @@ work_authorization:
   authorized_us: true
   needs_sponsorship_now: false
   needs_sponsorship_later: false
+  us_citizen: false
 
 # Your own choice per category. "decline" is always allowed. Never sent to the AI model.
 eeo:
@@ -74,3 +75,16 @@ answer_bank:
 style:
   voice: "plain, specific, no buzzwords"
   cover_letter_words: [250, 350]
+
+# What to look for. Hard filters drop postings; the rest feeds the fit score.
+preferences:
+  terms: ["Summer 2027"]
+  role_families: [swe, data_ml] # ranked: swe, data_ml, pm, quant, hardware, other
+  locations: ["San Francisco", "Berkeley", "Seattle", "New York"] # ranked, substring match
+  allow_remote: true
+  include_coops: false
+  degree_level: bachelors # associates | bachelors | masters | phd
+  target_companies: [] # always Tier A
+  watchlist: [] # boards to poll, e.g. {company: "Example Co", ats: greenhouse, token: exampleco}
+  per_company_cap: 3
+  tier_thresholds: { a: 80, b: 60 }

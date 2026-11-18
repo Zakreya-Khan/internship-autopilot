@@ -1,0 +1,14 @@
+{
+  "name": "@ia/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@fastify/static": "^10.1.11",
+    "@ia/ai": "^0.1.0",
+    "@ia/core": "^0.1.0",
+    "@ia/render": "^0.1.0",
+    "@ia/sources": "^0.1.0",
+    "fastify": "^5.12.8"
+  }
+}

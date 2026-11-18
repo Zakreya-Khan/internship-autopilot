@@ -1,0 +1,13 @@
+{
+  "name": "@ia/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@types/chrome": "^0.3.7"
+  },
+  "dependencies": {
+    "@ia/adapters": "^0.1.0",
+    "@ia/core": "^0.1.0"
+  }
+}

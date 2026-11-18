@@ -38,12 +38,12 @@ public sources ──> local app (sourcer → SQLite + profile.yaml → scorer/t
 
 ## Roadmap
 
-| Phase | Scope |
-| --- | --- |
-| 0 · Setup | `profile.yaml` + answer bank, sourcing + dedupe, SQLite schema, filters + fit scoring |
-| 1 · MVP | Tailoring + truth check, review UI + diffs, extension adapters for Greenhouse, Lever, Ashby, tracker + CSV |
-| 2 · More ATSs | Workday, SmartRecruiters, iCIMS (best effort), Batch API for routine prep |
-| 3 · Polish | Generic fallback adapter, email status sync, Sheets export, outcome analytics |
+| Phase         | Scope                                                                                                      |
+| ------------- | ---------------------------------------------------------------------------------------------------------- |
+| 0 · Setup     | `profile.yaml` + answer bank, sourcing + dedupe, SQLite schema, filters + fit scoring                      |
+| 1 · MVP       | Tailoring + truth check, review UI + diffs, extension adapters for Greenhouse, Lever, Ashby, tracker + CSV |
+| 2 · More ATSs | Workday, SmartRecruiters, iCIMS (best effort), Batch API for routine prep                                  |
+| 3 · Polish    | Generic fallback adapter, email status sync, Sheets export, outcome analytics                              |
 
 ## Your data
 
