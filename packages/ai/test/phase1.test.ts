@@ -7,6 +7,7 @@ import {
   FakeLlm,
   MODELS,
   modelTruthCheck,
+  profileForModel,
   sensitiveValues,
 } from "../src/index.ts";
 import type { DraftOutput } from "../src/index.ts";
@@ -100,8 +101,16 @@ describe("modelTruthCheck", () => {
     const user = llm.requests[0]!.user;
     const fact = indexFacts(profile).get("exp.lab.f1")!;
     expect(user).toContain(`exp.lab.f1 (${fact.origin}): ${fact.text}`);
+    // Tools and verified numbers, exactly as the drafter sees them.
+    const drafterLine = profileForModel(profile)
+      .split("\n")
+      .find((l) => l.startsWith("- exp.lab.f1 "))!;
+    expect(user).toContain(drafterLine.slice(2));
+    expect(fact.tools.length).toBeGreaterThan(0);
+    expect(user).toContain(`[tools: ${fact.tools.join(", ")}]`);
     expect(user).toContain("nope: (unknown id)");
     expect(llm.requests[0]!.system).toMatch(/source is part of the fact/);
+    expect(llm.requests[0]!.system).toMatch(/naming a listed tool/);
   });
 
   it("skips the call when there is nothing to check", async () => {

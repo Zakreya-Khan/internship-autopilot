@@ -237,6 +237,16 @@ function parse<T>(v: unknown, fallback: T): T {
   return typeof v === "string" ? (JSON.parse(v) as T) : fallback;
 }
 
+/** Is a process with this id still running? (EPERM means it exists but isn't ours.) */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 export class Store {
   readonly db: DatabaseSync;
   private readonly clock: () => string;
@@ -285,6 +295,43 @@ export class Store {
       { value: string } | undefined;
     return r?.value ?? null;
   }
+  /**
+   * Take a named lock for this process, unless a live process already holds it. A lock whose
+   * process has exited, or that is older than maxAgeMs, is taken over. Returns null when taken,
+   * or the current holder when not.
+   */
+  tryLock(name: string, maxAgeMs = 3 * 60 * 60_000): { pid: number; since: string } | null {
+    const key = `lock:${name}`;
+    const mine = JSON.stringify({ pid: process.pid, since: this.now() });
+    const current = this.getMeta(key);
+    if (current) {
+      const held = JSON.parse(current) as { pid: number; since: string };
+      const fresh = Date.parse(this.now()) - Date.parse(held.since) < maxAgeMs;
+      if (fresh && processAlive(held.pid)) return held;
+      // Stale: take it over only if nobody else did in the meantime.
+      const r = this.db
+        .prepare("UPDATE meta SET value = ? WHERE key = ? AND value = ?")
+        .run(mine, key, current);
+      return r.changes === 1 ? null : this.lockHolder(name);
+    }
+    const r = this.db
+      .prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING")
+      .run(key, mine);
+    return r.changes === 1 ? null : this.lockHolder(name);
+  }
+
+  lockHolder(name: string): { pid: number; since: string } | null {
+    const v = this.getMeta(`lock:${name}`);
+    return v ? (JSON.parse(v) as { pid: number; since: string }) : null;
+  }
+
+  /** Release a lock this process holds. */
+  unlock(name: string): void {
+    const held = this.lockHolder(name);
+    if (held?.pid === process.pid)
+      this.db.prepare("DELETE FROM meta WHERE key = ?").run(`lock:${name}`);
+  }
+
   setMeta(key: string, value: string): void {
     this.db
       .prepare(

@@ -472,6 +472,8 @@ export async function runPrep(
   paused: boolean;
   /** Why the run stopped early, if it did. */
   stopped: string | null;
+  /** True when another prep run was already working, so this one did nothing. */
+  busy: boolean;
 }> {
   const report = {
     prepared: 0,
@@ -481,7 +483,28 @@ export async function runPrep(
     closed: 0,
     paused: false,
     stopped: null as string | null,
+    busy: false,
   };
+  // One prep run at a time: two at once (a manual prep during serve --auto, or two terminals)
+  // would pick the same unfinished application and draft it twice.
+  const holder = deps.store.tryLock("prep");
+  if (holder) {
+    report.busy = true;
+    report.stopped = `another prep run (process ${holder.pid}, started ${holder.since}) is still working`;
+    return report;
+  }
+  try {
+    return await prepLoop(deps, opts, report);
+  } finally {
+    deps.store.unlock("prep");
+  }
+}
+
+async function prepLoop(
+  deps: PrepDeps,
+  opts: { limit?: number; tiers?: Tier[] },
+  report: Awaited<ReturnType<typeof runPrep>>,
+): Promise<Awaited<ReturnType<typeof runPrep>>> {
   const limit = opts.limit ?? 25;
   // Look further down the list than the limit, so closed postings don't shrink the run.
   const pool = selectForPrep(deps, { ...opts, limit: deps.liveness ? limit * 3 + 5 : limit });

@@ -24,6 +24,8 @@ Statements of interest or motivation that make no factual claim about the candid
 Each cited fact names where it comes from in parentheses: the role title and organization, or the
 project name. That source is part of the fact: a role titled "Founder" supports "founded", and a
 project named after NASA supports mentioning NASA.
+A fact may also list [tools: ...] used in that work and a [verified number: ...]. Those are part of
+the fact too: naming a listed tool, or using that number, is supported.
 Judge only against the cited facts given. Be strict; when unsure, mark it unsupported.`;
 
 /**
@@ -44,7 +46,11 @@ export async function modelTruthCheck(
         c.factIds
           .map((id) => {
             const f = facts.get(id);
-            return f ? `  - ${id} (${f.origin}): ${f.text}` : `  - ${id}: (unknown id)`;
+            if (!f) return `  - ${id}: (unknown id)`;
+            // The same line the drafter sees in profileForModel.
+            const tools = f.tools.length ? ` [tools: ${f.tools.join(", ")}]` : "";
+            const metric = f.verifiedMetric ? ` [verified number: "${f.verifiedMetric}"]` : "";
+            return `  - ${id} (${f.origin}): ${f.text}${tools}${metric}`;
           })
           .join("\n") || "  (no facts cited)";
       return `<item where="${c.where}">\nText: ${c.text}\nCited facts:\n${cited}\n</item>`;

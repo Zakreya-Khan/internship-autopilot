@@ -58,7 +58,11 @@ registerCommand("prep", async (ctx, args) => {
   console.log(
     `prepared ${r.prepared}: ${r.ready} ready, ${r.needsInput} need input, ${r.failed} failed; ${r.closed} skipped as closed`,
   );
-  if (r.stopped)
+  if (r.busy)
+    console.log(
+      `Nothing done: ${r.stopped}. Run prep again when it finishes; it picks up where that one stops.`,
+    );
+  else if (r.stopped)
     console.log(
       `Stopped early: ${r.stopped}${r.paused ? " Run prep again after it resets;" : " Fix that, then run prep again;"} unfinished applications go first.`,
     );
