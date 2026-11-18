@@ -18,8 +18,9 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "build": "npm run build -w @ia/ui && npm run build -w @ia/extension",
-    "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
-    "ia": "tsx apps/server/src/cli.ts"
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test && npm run check:private",
+    "ia": "tsx apps/server/src/cli.ts",
+    "check:private": "node scripts/check-private.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

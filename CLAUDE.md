@@ -9,7 +9,7 @@ A local-first tool that prepares internship applications and fills them in the u
 - No fabricated claims: generated text cites profile fact ids, `checkClaims` (code) and `modelTruthCheck` (model) both run, and blocked resume bullets revert to the source wording.
 - EEO, work-authorization, contact details and GPA are never sent to the model (`profileForModel` builds the only view the model gets).
 - Status changes go through the state machine in `packages/core/src/status.ts`. Only the extension's confirmation or the user can move an application to `submitted`.
-- **This repo is public.** Never commit `profile.yaml`, databases, generated resumes, snapshots, exports, real form HTML containing personal data, or `.env`. Fixtures are fictional.
+- **This repo is public.** Never commit `profile.yaml`, databases, generated resumes, snapshots, exports, real form HTML containing personal data, or `.env`. Fixtures are fictional: never copy a value from the user's profile, resume or LinkedIn into code, tests, docs or commit messages. `npm run check` ends with `check:private`, which fails if any distinctive `profile.yaml` value appears in a tracked file.
 - Database changes: add a new entry to `MIGRATIONS` in `apps/server/src/db.ts`. Never edit a migration that has been committed.
 
 ## Stack
