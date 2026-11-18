@@ -10,3 +10,4 @@ export * from "./stories.ts";
 export * from "./outreach.ts";
 export * from "./claude-cli.ts";
 export * from "./ping.ts";
+export * from "./same-question.ts";

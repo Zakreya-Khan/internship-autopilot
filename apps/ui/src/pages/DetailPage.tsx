@@ -240,6 +240,7 @@ export function DetailPage({ id }: { id: number }) {
           fields={d.fields}
           editable={editable}
           onSave={(key, v) => guard(() => api.setField(a.id, key, v))}
+          onSuggestion={(key, accept, v) => guard(() => api.settleSuggestion(a.id, key, accept, v))}
         />
       </section>
     </article>

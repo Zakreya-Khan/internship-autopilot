@@ -62,6 +62,75 @@ export interface Field {
   options: string[] | null;
   attach: "resume" | "cover_letter" | null;
   value_seen: string | null;
+  /** The learned answer that filled this field, if one did. */
+  answer_id: number | null;
+  /** A learned answer to a similar question, waiting for you to confirm. */
+  suggestion: Suggestion | null;
+}
+
+export interface Suggestion {
+  answerId: number;
+  value: string;
+  /** The question you originally answered. */
+  from: string;
+  score: number;
+  /** False when your answer didn't map onto this form's options: pick one. */
+  mapped: boolean;
+}
+
+export type Scope = "always" | "company" | "once";
+
+export interface InboxItem {
+  applicationId: number;
+  company: string;
+  title: string;
+  status: ApplicationStatus;
+  fieldKey: string;
+  label: string;
+  type: string;
+  options: string[] | null;
+  required: boolean;
+  note: string | null;
+  suggestion: Suggestion | null;
+}
+
+export interface InboxGroup {
+  id: string;
+  question: string;
+  wordings: string[];
+  type: string;
+  options: string[] | null;
+  required: boolean;
+  companySpecific: boolean;
+  sensitive: boolean;
+  defaultScope: Scope;
+  companies: string[];
+  items: InboxItem[];
+}
+
+export interface AnswerResult {
+  filled: number;
+  unmapped: { applicationId: number; fieldKey: string }[];
+  saved: number[];
+  scope: Scope;
+  backfill: { filled: number; suggested: number; applications: number[] };
+  touched: number[];
+}
+
+export interface LearnedAnswerRow {
+  id: number;
+  question: string;
+  answer: string;
+  scope: "always" | "company";
+  company: string;
+  aliases: { key: string; text: string }[];
+  fieldType: string | null;
+  options: string[] | null;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt: string | null;
+  uses: number;
+  pending: number;
 }
 
 export interface Draft {
@@ -172,6 +241,11 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return data as T;
 }
 
+/** Pages that change answers tell the nav badge to recount. */
+export function questionsChanged(): void {
+  window.dispatchEvent(new Event("ia:questions-changed"));
+}
+
 export const api = {
   queue: (status?: string) =>
     call<QueueItem[]>("GET", `/api/queue${status ? `?status=${status}` : ""}`),
@@ -192,6 +266,37 @@ export const api = {
     fields: Partial<Pick<ApplicationRow, "next_action" | "next_action_due" | "contact" | "notes">>,
   ) => call<{ ok: true }>("PATCH", `/api/applications/${id}/tracking`, fields),
   stats: () => call<Stats>("GET", "/api/stats"),
+  questions: (optional = false) =>
+    call<{ groups: InboxGroup[]; count: number }>(
+      "GET",
+      `/api/questions${optional ? "?optional=1" : ""}`,
+    ),
+  questionCount: () => call<{ count: number }>("GET", "/api/questions/count"),
+  answerQuestion: (
+    items: { applicationId: number; fieldKey: string }[],
+    answer: string,
+    scope: Scope,
+  ) => call<AnswerResult>("POST", "/api/questions/answer", { items, answer, scope }),
+  settleSuggestion: (applicationId: number, fieldKey: string, accept: boolean, value?: string) =>
+    call<{ touched: number[] }>("POST", "/api/questions/suggestion", {
+      applicationId,
+      fieldKey,
+      accept,
+      ...(value ? { value } : {}),
+    }),
+  answers: () => call<LearnedAnswerRow[]>("GET", "/api/answers"),
+  editAnswer: (id: number, patch: { answer?: string; scope?: "always" | "company" }) =>
+    call<{ pending: { applicationId: number; fieldKey: string; label: string }[] }>(
+      "PATCH",
+      `/api/answers/${id}`,
+      patch,
+    ),
+  applyAnswer: (id: number) =>
+    call<{ updated: number; skipped: number; touched: number[] }>(
+      "POST",
+      `/api/answers/${id}/apply`,
+    ),
+  deleteAnswer: (id: number) => call<{ ok: true }>("DELETE", `/api/answers/${id}`),
   qualify: (verdict: "meets" | "close") =>
     call<QualifyItem[]>("GET", `/api/qualify?verdict=${verdict}`),
   providerSettings: () => call<ProviderSettings>("GET", "/api/settings/provider"),

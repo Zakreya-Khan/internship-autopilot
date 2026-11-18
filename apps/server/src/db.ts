@@ -9,6 +9,7 @@ import type {
   FitScore,
   Flag,
   FormQuestion,
+  LearnedAnswer,
   Posting,
   Tier,
   TokenUsage,
@@ -163,6 +164,51 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE llm_calls ADD COLUMN provider TEXT NOT NULL DEFAULT 'api';
   `,
+  // Learned answers with a scope (reused everywhere, or at one company), aliases you confirmed,
+  // matches you rejected, cached "same question?" verdicts, and which answer filled a field.
+  `
+  CREATE TABLE learned_answers_v2 (
+    id INTEGER PRIMARY KEY,
+    question_key TEXT NOT NULL,
+    question_text TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT 'always',
+    company TEXT NOT NULL DEFAULT '',
+    field_type TEXT,
+    options TEXT,
+    from_application_id INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_used_at TEXT,
+    UNIQUE (question_key, company)
+  );
+  INSERT INTO learned_answers_v2 (id, question_key, question_text, answer, from_application_id, created_at, updated_at)
+    SELECT id, question_key, question_text, answer, from_application_id, created_at, created_at FROM learned_answers;
+  DROP TABLE learned_answers;
+  ALTER TABLE learned_answers_v2 RENAME TO learned_answers;
+  CREATE TABLE answer_aliases (
+    answer_id INTEGER NOT NULL REFERENCES learned_answers(id) ON DELETE CASCADE,
+    question_key TEXT NOT NULL,
+    question_text TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (answer_id, question_key)
+  );
+  CREATE TABLE answer_rejections (
+    answer_id INTEGER NOT NULL REFERENCES learned_answers(id) ON DELETE CASCADE,
+    question_key TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (answer_id, question_key)
+  );
+  CREATE TABLE question_pairs (
+    a TEXT NOT NULL,
+    b TEXT NOT NULL,
+    same INTEGER NOT NULL,
+    checked_at TEXT NOT NULL,
+    PRIMARY KEY (a, b)
+  );
+  ALTER TABLE field_fills ADD COLUMN answer_id INTEGER;
+  ALTER TABLE field_fills ADD COLUMN suggestion TEXT;
+  `,
 ];
 
 export interface LivenessRow {
@@ -217,6 +263,10 @@ export interface FieldFillRow {
   options: string[] | null;
   attach: "resume" | "cover_letter" | null;
   value_seen: string | null;
+  /** The learned answer that filled this field, if one did. */
+  answer_id: number | null;
+  /** A learned answer to a similar question, waiting for you to confirm it. */
+  suggestion: AnswerSuggestion | null;
 }
 
 export interface DraftRow {
@@ -245,6 +295,19 @@ function processAlive(pid: number): boolean {
   } catch (e) {
     return (e as NodeJS.ErrnoException).code === "EPERM";
   }
+}
+
+/** A learned answer offered for a field whose question is worded differently. */
+export interface AnswerSuggestion {
+  answerId: number;
+  /** The value to fill: your answer, mapped onto this form's options where it maps. */
+  value: string;
+  /** The question you originally answered. */
+  from: string;
+  /** How alike the two questions are, 0 to 1. */
+  score: number;
+  /** False when your answer didn't map onto this form's options: you pick one. */
+  mapped: boolean;
 }
 
 export class Store {
@@ -696,8 +759,9 @@ export class Store {
         .run(applicationId);
       const stmt = this.db
         .prepare(`INSERT INTO field_fills (application_id, field_key, label, field_type,
-          planned_value, source, confidence, flag, note, required, options, attach, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(application_id, field_key) DO NOTHING`);
+          planned_value, source, confidence, flag, note, required, options, attach, updated_at,
+          answer_id, suggestion)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(application_id, field_key) DO NOTHING`);
       for (const f of fills) {
         stmt.run(
           applicationId,
@@ -713,7 +777,10 @@ export class Store {
           f.options ? json(f.options) : null,
           f.attach ?? null,
           now,
+          f.answerId ?? null,
+          f.suggestion ? json(f.suggestion) : null,
         );
+        if (f.answerId) this.touchLearned(f.answerId);
       }
     });
   }
@@ -737,16 +804,36 @@ export class Store {
       options: parse(r.options, null),
       attach: (r.attach as FieldFillRow["attach"]) ?? null,
       value_seen: (r.value_seen as string | null) ?? null,
+      answer_id: r.answer_id == null ? null : Number(r.answer_id),
+      suggestion: parse(r.suggestion, null),
     }));
   }
 
-  /** Your own value for a field. It is never overwritten by a later re-prep. */
-  setFieldByUser(applicationId: number, fieldKey: string, value: string): void {
+  /**
+   * Your own value for a field. It is never overwritten by a later re-prep. `answerId` records
+   * which learned answer it came from, if any; a pending suggestion is cleared.
+   */
+  setFieldByUser(
+    applicationId: number,
+    fieldKey: string,
+    value: string,
+    answerId: number | null = null,
+  ): void {
     this.db
       .prepare(
-        "UPDATE field_fills SET planned_value = ?, source = 'you', confidence = 'high', flag = NULL, note = NULL, updated_at = ? WHERE application_id = ? AND field_key = ?",
+        "UPDATE field_fills SET planned_value = ?, source = 'you', confidence = 'high', flag = NULL, note = NULL, answer_id = ?, suggestion = NULL, updated_at = ? WHERE application_id = ? AND field_key = ?",
       )
-      .run(value, this.now(), applicationId, fieldKey);
+      .run(value, answerId, this.now(), applicationId, fieldKey);
+    if (answerId) this.touchLearned(answerId);
+  }
+
+  /** Offer a learned answer to a similar question on a field, for you to confirm. */
+  setSuggestion(applicationId: number, fieldKey: string, s: AnswerSuggestion | null): void {
+    this.db
+      .prepare(
+        "UPDATE field_fills SET suggestion = ?, updated_at = ? WHERE application_id = ? AND field_key = ?",
+      )
+      .run(s ? json(s) : null, this.now(), applicationId, fieldKey);
   }
 
   recordValuesSeen(applicationId: number, seen: Record<string, string | null>): void {
@@ -759,27 +846,191 @@ export class Store {
   }
 
   // ---- learned answers ----
-  saveLearnedAnswer(
-    questionKey: string,
-    questionText: string,
-    answer: string,
-    fromApplicationId: number | null,
-  ): void {
+  // Answers you gave, reused on later forms. EEO, work authorization, GPA and contact details are
+  // never stored here (they live in profile.yaml); callers check isSensitiveQuestion first.
+
+  /** Save (or update) an answer. Returns its id. */
+  saveLearnedAnswer(a: {
+    questionKey: string;
+    question: string;
+    answer: string;
+    scope: "always" | "company";
+    company: string;
+    fieldType?: string | null;
+    options?: string[] | null;
+    fromApplicationId?: number | null;
+  }): number {
+    const company = a.scope === "company" ? a.company : "";
+    const now = this.now();
     this.db
       .prepare(
-        `INSERT INTO learned_answers (question_key, question_text, answer, from_application_id, created_at) VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(question_key) DO UPDATE SET answer = excluded.answer, question_text = excluded.question_text`,
+        `INSERT INTO learned_answers (question_key, question_text, answer, scope, company, field_type,
+          options, from_application_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(question_key, company) DO UPDATE SET answer = excluded.answer,
+          question_text = excluded.question_text, scope = excluded.scope,
+          field_type = excluded.field_type, options = excluded.options, updated_at = excluded.updated_at`,
       )
-      .run(questionKey, questionText, answer, fromApplicationId, this.now());
+      .run(
+        a.questionKey,
+        a.question,
+        a.answer,
+        a.scope,
+        company,
+        a.fieldType ?? null,
+        a.options ? json(a.options) : null,
+        a.fromApplicationId ?? null,
+        now,
+        now,
+      );
+    const row = this.db
+      .prepare("SELECT id FROM learned_answers WHERE question_key = ? AND company = ?")
+      .get(a.questionKey, company) as { id: number };
+    return Number(row.id);
   }
 
-  learnedAnswers(): Map<string, { question: string; answer: string }> {
-    const rows = this.db
-      .prepare("SELECT question_key, question_text, answer FROM learned_answers")
-      .all() as { question_key: string; question_text: string; answer: string }[];
-    return new Map(
-      rows.map((r) => [r.question_key, { question: r.question_text, answer: r.answer }]),
+  /** Every learned answer, with the wordings you confirmed mean the same question. */
+  learnedBank(): LearnedAnswer[] {
+    const aliases = this.db
+      .prepare(
+        "SELECT answer_id, question_key, question_text FROM answer_aliases ORDER BY created_at",
+      )
+      .all() as { answer_id: number; question_key: string; question_text: string }[];
+    return (this.db.prepare("SELECT * FROM learned_answers ORDER BY id").all() as Row[]).map(
+      (r) => ({
+        id: Number(r.id),
+        questionKey: String(r.question_key),
+        question: String(r.question_text),
+        answer: String(r.answer),
+        scope: r.scope === "company" ? "company" : "always",
+        company: String(r.company ?? ""),
+        aliases: aliases
+          .filter((a) => Number(a.answer_id) === Number(r.id))
+          .map((a) => ({ key: a.question_key, text: a.question_text })),
+      }),
     );
+  }
+
+  /** The bank with dates and usage, for the Answer bank page. */
+  learnedBankDetails(): (LearnedAnswer & {
+    fieldType: string | null;
+    options: string[] | null;
+    createdAt: string;
+    updatedAt: string;
+    lastUsedAt: string | null;
+    uses: number;
+  })[] {
+    const extra = new Map(
+      (this.db.prepare("SELECT * FROM learned_answers").all() as Row[]).map((r) => [
+        Number(r.id),
+        r,
+      ]),
+    );
+    const uses = new Map(
+      (
+        this.db
+          .prepare(
+            "SELECT answer_id, COUNT(DISTINCT application_id) AS n FROM field_fills WHERE answer_id IS NOT NULL GROUP BY answer_id",
+          )
+          .all() as { answer_id: number; n: number }[]
+      ).map((u) => [Number(u.answer_id), Number(u.n)]),
+    );
+    return this.learnedBank().map((a) => {
+      const r = extra.get(a.id)!;
+      return {
+        ...a,
+        fieldType: (r.field_type as string | null) ?? null,
+        options: parse(r.options, null),
+        createdAt: String(r.created_at),
+        updatedAt: String(r.updated_at),
+        lastUsedAt: (r.last_used_at as string | null) ?? null,
+        uses: uses.get(a.id) ?? 0,
+      };
+    });
+  }
+
+  getLearned(id: number): LearnedAnswer | null {
+    return this.learnedBank().find((a) => a.id === id) ?? null;
+  }
+
+  updateLearned(id: number, patch: { answer?: string; scope?: "always" | "company" }): void {
+    const cur = this.getLearned(id);
+    if (!cur) return;
+    this.db
+      .prepare("UPDATE learned_answers SET answer = ?, scope = ?, updated_at = ? WHERE id = ?")
+      .run(patch.answer ?? cur.answer, patch.scope ?? cur.scope, this.now(), id);
+  }
+
+  /** Forget an answer. Fields it filled keep their values; they just stop pointing at it. */
+  deleteLearned(id: number): void {
+    this.transaction(() => {
+      this.db.prepare("UPDATE field_fills SET answer_id = NULL WHERE answer_id = ?").run(id);
+      this.db.prepare("DELETE FROM learned_answers WHERE id = ?").run(id);
+    });
+  }
+
+  touchLearned(id: number): void {
+    this.db.prepare("UPDATE learned_answers SET last_used_at = ? WHERE id = ?").run(this.now(), id);
+  }
+
+  /** Another wording you confirmed asks the same question: it matches exactly from now on. */
+  addAlias(answerId: number, questionKey: string, questionText: string): void {
+    this.db
+      .prepare(
+        "INSERT INTO answer_aliases (answer_id, question_key, question_text, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
+      )
+      .run(answerId, questionKey, questionText, this.now());
+  }
+
+  /** You said this answer doesn't fit this question: it's never offered for it again. */
+  rejectMatch(answerId: number, questionKey: string): void {
+    this.db
+      .prepare(
+        "INSERT INTO answer_rejections (answer_id, question_key, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+      )
+      .run(answerId, questionKey, this.now());
+  }
+
+  rejectedFor(questionKey: string): Set<number> {
+    return new Set(
+      (
+        this.db
+          .prepare("SELECT answer_id FROM answer_rejections WHERE question_key = ?")
+          .all(questionKey) as { answer_id: number }[]
+      ).map((r) => Number(r.answer_id)),
+    );
+  }
+
+  /** A cached "do these two questions ask the same thing?" verdict, in either order. */
+  pairVerdict(a: string, b: string): boolean | null {
+    const [x, y] = a < b ? [a, b] : [b, a];
+    const r = this.db.prepare("SELECT same FROM question_pairs WHERE a = ? AND b = ?").get(x, y) as
+      { same: number } | undefined;
+    return r ? Number(r.same) === 1 : null;
+  }
+
+  savePairVerdict(a: string, b: string, same: boolean): void {
+    const [x, y] = a < b ? [a, b] : [b, a];
+    this.db
+      .prepare(
+        "INSERT INTO question_pairs (a, b, same, checked_at) VALUES (?, ?, ?, ?) ON CONFLICT(a, b) DO UPDATE SET same = excluded.same, checked_at = excluded.checked_at",
+      )
+      .run(x, y, same ? 1 : 0, this.now());
+  }
+
+  /** Fields an answer filled, on applications not yet submitted. */
+  pendingFieldsUsing(answerId: number): (FieldFillRow & { status: ApplicationStatus })[] {
+    const rows = this.db
+      .prepare(
+        `SELECT f.application_id, a.status FROM field_fills f JOIN applications a ON a.id = f.application_id
+         WHERE f.answer_id = ? AND a.status IN ('prepared', 'needs_input', 'ready', 'approved')`,
+      )
+      .all(answerId) as { application_id: number; status: ApplicationStatus }[];
+    const out: (FieldFillRow & { status: ApplicationStatus })[] = [];
+    for (const r of rows)
+      for (const f of this.listFieldFills(Number(r.application_id)))
+        if (f.answer_id === answerId) out.push({ ...f, status: r.status });
+    return out;
   }
 
   // ---- events, cost, polls ----

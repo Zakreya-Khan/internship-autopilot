@@ -20,6 +20,43 @@ export interface FillEntry {
   note: string | null;
   /** "resume" / "cover_letter" for file fields the extension attaches. */
   attach?: "resume" | "cover_letter";
+  /** The learned answer that filled this field, if one did. */
+  answerId?: number | null;
+  /** A learned answer to a similar question, offered for you to confirm. Never filled by itself. */
+  suggestion?: {
+    answerId: number;
+    value: string;
+    from: string;
+    score: number;
+    mapped: boolean;
+  } | null;
+}
+
+/**
+ * What the learned-answer bank has for a question: an answer to fill ("fill": the same question,
+ * or a very close match that maps onto this form's options), or a suggestion you confirm.
+ */
+export type LearnedHit =
+  | { kind: "fill"; value: string; answerId: number | null }
+  | {
+      kind: "suggest";
+      value: string;
+      answerId: number;
+      from: string;
+      score: number;
+      mapped: boolean;
+    };
+
+/** Looks a form question up in the learned-answer bank. A plain Map is exact wording only. */
+export type LearnedLookup =
+  ((q: FormQuestion) => LearnedHit | null) | Map<string, { answer: string }>;
+
+function lookupFn(learned: LearnedLookup): (q: FormQuestion) => LearnedHit | null {
+  if (typeof learned === "function") return learned;
+  return (q) => {
+    const hit = learned.get(questionKey(q.label));
+    return hit ? { kind: "fill", value: hit.answer, answerId: null } : null;
+  };
 }
 
 export interface DraftedAnswer {
@@ -68,10 +105,41 @@ export function buildFillPlan(
   questions: FormQuestion[],
   profile: Profile,
   drafted: Map<string, DraftedAnswer>,
-  learned: Map<string, { answer: string }>,
+  learned: LearnedLookup,
   opts: { coverLetter?: boolean } = {},
 ): FillEntry[] {
+  const lookup = lookupFn(learned);
   return questions.map((q): FillEntry => {
+    const hit = lookup(q);
+    const entry = planOne(q, profile, drafted, hit, opts);
+    // A suggestion only ever sits beside a field still waiting for you; it never fills it.
+    if (
+      hit?.kind === "suggest" &&
+      entry.value === null &&
+      (entry.flag === "red" || entry.flag === "amber")
+    )
+      return {
+        ...entry,
+        suggestion: {
+          answerId: hit.answerId,
+          value: hit.value,
+          from: hit.from,
+          score: hit.score,
+          mapped: hit.mapped,
+        },
+      };
+    return entry;
+  });
+}
+
+function planOne(
+  q: FormQuestion,
+  profile: Profile,
+  drafted: Map<string, DraftedAnswer>,
+  hit: LearnedHit | null,
+  opts: { coverLetter?: boolean },
+): FillEntry {
+  {
     const base = {
       key: q.key,
       label: q.label,
@@ -79,7 +147,8 @@ export function buildFillPlan(
       required: q.required,
       ...(q.options ? { options: q.options } : {}),
     };
-    const learnedAnswer = learned.get(questionKey(q.label));
+    const learnedAnswer =
+      hit?.kind === "fill" ? { answer: hit.value, answerId: hit.answerId } : null;
     const cls = classifyQuestion(q);
 
     if (cls.kind === "known") {
@@ -145,6 +214,7 @@ export function buildFillPlan(
           confidence: "high",
           flag: null,
           note: null,
+          answerId: learnedAnswer.answerId,
         };
       return {
         ...base,
@@ -187,6 +257,7 @@ export function buildFillPlan(
         confidence: "high",
         flag: null,
         note: null,
+        answerId: learnedAnswer.answerId,
       };
     if (cls.kind === "open") {
       const d = drafted.get(q.key);
@@ -217,7 +288,7 @@ export function buildFillPlan(
       flag: q.required ? "red" : "amber",
       note: `Needs you: ${cls.reason}.`,
     };
-  });
+  }
 }
 
 export function hasBlockingFlags(plan: Pick<FillEntry, "flag">[]): boolean {

@@ -277,7 +277,9 @@ describe("API", () => {
     ).toBe(409);
     const edit = await call("PATCH", `/api/applications/${id}/fields/question_3`, { value: "No" });
     expect(edit.json()).toEqual({ ok: true, status: "ready" });
-    expect(d.store.learnedAnswers().get("do_you_know_anyone_who_works_here")?.answer).toBe("No");
+    expect(
+      d.store.learnedBank().find((a) => a.questionKey === "do_you_know_anyone_who_works_here"),
+    ).toMatchObject({ answer: "No", scope: "always" });
 
     expect(
       (await call("POST", `/api/applications/${id}/status`, { to: "approved" })).statusCode,

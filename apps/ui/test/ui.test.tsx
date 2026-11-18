@@ -56,6 +56,8 @@ const field = (over: Partial<Field>): Field => ({
   options: null,
   attach: null,
   value_seen: null,
+  answer_id: null,
+  suggestion: null,
   ...over,
 });
 

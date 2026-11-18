@@ -17,13 +17,21 @@ import {
   isSubmittedOrLater,
   mapPageFieldsByRules,
   outcomeReport,
-  questionKey,
   STATUSES,
   toDelimited,
 } from "@ia/core";
 import { renderCoverLetterPdf } from "@ia/render";
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { Scope } from "./answers.ts";
+import {
+  answerQuestion,
+  applyAnswerToPending,
+  backfillPending,
+  questionsInbox,
+  refreshReadiness as refreshOne,
+  settleSuggestion,
+} from "./answers.ts";
 import type { Paths } from "./config.ts";
 import type { ApplicationRow, FieldFillRow, Store } from "./db.ts";
 import {
@@ -163,14 +171,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   /** Needs input → Ready once nothing blocks; Ready → Needs input if something new does. */
   const refreshReadiness = (id: number) => {
-    const a = mustApp(id);
-    if (a.status !== "needs_input" && a.status !== "ready") return;
-    const variant = a.resume_variant_id ? store.getResumeVariant(a.resume_variant_id) : null;
-    const parseOk = (variant?.parse_check as { ok?: boolean } | null)?.ok !== false;
-    const draftsOk = store.listDrafts(id).every((d) => d.checker_status === "pass");
-    const ok = !hasBlockingFlags(store.listFieldFills(id)) && parseOk && draftsOk;
-    const want = ok ? "ready" : "needs_input";
-    if (a.status !== want) store.setStatus(id, want);
+    mustApp(id);
+    refreshOne(store, id);
   };
 
   // ---------- health ----------
@@ -243,25 +245,35 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   );
 
   // ---------- edits from the review UI ----------
-  app.patch<{ Params: { id: string; key: string }; Body: { value: string; remember?: boolean } }>(
-    "/api/applications/:id/fields/:key",
-    async (req) => {
-      const a = mustApp(req.params.id);
-      if (!["needs_input", "ready", "approved"].includes(a.status)) {
-        throw new HttpProblem(409, `fields are locked once an application is ${a.status}`);
-      }
-      const field = store.listFieldFills(a.id).find((f) => f.field_key === req.params.key);
-      if (!field) throw new HttpProblem(404, `no field ${req.params.key}`);
-      const value = String(req.body?.value ?? "");
+  app.patch<{
+    Params: { id: string; key: string };
+    Body: { value: string; remember?: boolean; scope?: Scope };
+  }>("/api/applications/:id/fields/:key", async (req) => {
+    const a = mustApp(req.params.id);
+    if (!["needs_input", "ready", "approved"].includes(a.status)) {
+      throw new HttpProblem(409, `fields are locked once an application is ${a.status}`);
+    }
+    const field = store.listFieldFills(a.id).find((f) => f.field_key === req.params.key);
+    if (!field) throw new HttpProblem(404, `no field ${req.params.key}`);
+    const value = String(req.body?.value ?? "");
+    const scope: Scope = req.body?.remember === false ? "once" : (req.body?.scope ?? "always");
+    if (value && field.source !== "drafted") {
+      // Your answer: saved to the bank by scope, and offered to every other pending application.
+      await answerQuestion(
+        store,
+        llm,
+        [{ applicationId: a.id, fieldKey: field.field_key }],
+        value,
+        scope,
+      );
+    } else {
       store.setFieldByUser(a.id, field.field_key, value);
-      if (req.body?.remember !== false && value)
-        store.saveLearnedAnswer(questionKey(field.label), field.label, value, a.id);
-      store.logEvent(a.id, "field_edited", { key: field.field_key });
       if (a.status === "approved") store.setStatus(a.id, "ready");
-      refreshReadiness(a.id);
-      return { ok: true, status: mustApp(a.id).status };
-    },
-  );
+    }
+    store.logEvent(a.id, "field_edited", { key: field.field_key });
+    refreshReadiness(a.id);
+    return { ok: true, status: mustApp(a.id).status };
+  });
 
   app.patch<{ Params: { id: string }; Body: { text: string } }>("/api/drafts/:id", async (req) => {
     const id = Number(req.params.id);
@@ -469,6 +481,106 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
 
   app.get("/api/cost", async () => store.costSummary());
+
+  // ---------- Questions inbox and answer bank ----------
+  const SCOPES: Scope[] = ["always", "company", "once"];
+  const asProblem = (e: unknown) =>
+    e instanceof HttpProblem ? e : new HttpProblem(400, e instanceof Error ? e.message : String(e));
+
+  app.get<{ Querystring: { optional?: string } }>("/api/questions", async (req) => {
+    const groups = questionsInbox(store, { includeOptional: req.query.optional === "1" });
+    return { groups, count: groups.length };
+  });
+
+  app.get("/api/questions/count", async () => ({ count: questionsInbox(store).length }));
+
+  app.post<{
+    Body: { items: { applicationId: number; fieldKey: string }[]; answer: string; scope?: Scope };
+  }>("/api/questions/answer", async (req) => {
+    const b = req.body ?? ({} as never);
+    const scope = b.scope ?? "always";
+    if (!SCOPES.includes(scope))
+      throw new HttpProblem(400, "scope must be always, company or once");
+    if (!Array.isArray(b.items) || !b.items.length)
+      throw new HttpProblem(400, "no questions given");
+    try {
+      return await answerQuestion(store, llm, b.items.slice(0, 500), String(b.answer ?? ""), scope);
+    } catch (e) {
+      throw asProblem(e);
+    }
+  });
+
+  app.post<{ Body: { applicationId: number; fieldKey: string; accept: boolean; value?: string } }>(
+    "/api/questions/suggestion",
+    async (req) => {
+      const b = req.body ?? ({} as never);
+      try {
+        return await settleSuggestion(
+          store,
+          llm,
+          Number(b.applicationId),
+          String(b.fieldKey),
+          Boolean(b.accept),
+          b.value,
+        );
+      } catch (e) {
+        throw asProblem(e);
+      }
+    },
+  );
+
+  app.get("/api/answers", async () =>
+    store.learnedBankDetails().map((a) => ({
+      ...a,
+      pending: store.pendingFieldsUsing(a.id).length,
+    })),
+  );
+
+  app.patch<{ Params: { id: string }; Body: { answer?: string; scope?: "always" | "company" } }>(
+    "/api/answers/:id",
+    async (req) => {
+      const id = Number(req.params.id);
+      if (!store.getLearned(id)) throw new HttpProblem(404, `no learned answer ${id}`);
+      const b = req.body ?? {};
+      if (b.scope && b.scope !== "always" && b.scope !== "company")
+        throw new HttpProblem(400, "scope must be always or company");
+      if (b.answer !== undefined && !String(b.answer).trim())
+        throw new HttpProblem(400, "an answer can't be empty; delete it instead");
+      store.updateLearned(id, {
+        ...(b.answer !== undefined ? { answer: String(b.answer).trim() } : {}),
+        ...(b.scope ? { scope: b.scope } : {}),
+      });
+      // Which pending applications still hold the old answer: the page offers to update them.
+      const pending = store.pendingFieldsUsing(id).map((f) => ({
+        applicationId: f.application_id,
+        fieldKey: f.field_key,
+        label: f.label,
+        value: f.planned_value,
+      }));
+      return { answer: store.getLearned(id), pending };
+    },
+  );
+
+  app.post<{ Params: { id: string } }>("/api/answers/:id/apply", async (req) => {
+    try {
+      return applyAnswerToPending(store, Number(req.params.id));
+    } catch (e) {
+      throw asProblem(e);
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/answers/:id", async (req) => {
+    const id = Number(req.params.id);
+    if (!store.getLearned(id)) throw new HttpProblem(404, `no learned answer ${id}`);
+    store.deleteLearned(id);
+    return { ok: true };
+  });
+
+  // Re-check every pending application against the bank (after you add or edit answers).
+  app.post("/api/questions/backfill", async () => {
+    const r = await backfillPending(store, llm);
+    return { ...r, touched: r.applications.filter((id) => refreshOne(store, id)) };
+  });
 
   // ---------- Settings: how to reach Claude ----------
   const mustPaths = (): Paths => {

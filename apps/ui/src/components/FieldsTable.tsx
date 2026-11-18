@@ -56,14 +56,78 @@ function FieldEditor({ field, onSave }: { field: Field; onSave: (v: string) => P
   );
 }
 
+/** A learned answer to a similar question: use it, or say it doesn't fit. */
+export function SuggestionNote({
+  field,
+  onSettle,
+}: {
+  field: Pick<Field, "label" | "options" | "suggestion">;
+  onSettle?: ((accept: boolean, value?: string) => Promise<void>) | undefined;
+}) {
+  const s = field.suggestion;
+  const [pick, setPick] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!s) return null;
+  const run = async (accept: boolean, value?: string) => {
+    if (!onSettle) return;
+    setBusy(true);
+    try {
+      await onSettle(accept, value);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="suggestion small" role="group" aria-label={`Suggestion for ${field.label}`}>
+      <div>
+        Suggested: <strong>{s.value}</strong>
+      </div>
+      <div className="muted">From a similar question: “{s.from}”</div>
+      {!s.mapped ? (
+        <div className="warn">Your answer isn't one of this form's options: pick one.</div>
+      ) : null}
+      {onSettle ? (
+        <div className="actions">
+          {!s.mapped && field.options?.length ? (
+            <select
+              aria-label={`Option for ${field.label}`}
+              value={pick}
+              onChange={(e) => setPick(e.target.value)}
+            >
+              <option value="">Choose…</option>
+              {field.options.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy || (!s.mapped && !pick)}
+            onClick={() => void run(true, s.mapped ? undefined : pick)}
+          >
+            Use it
+          </button>
+          <button type="button" className="quiet" disabled={busy} onClick={() => void run(false)}>
+            Not this question
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function FieldsTable({
   fields,
   editable,
   onSave,
+  onSuggestion,
 }: {
   fields: Field[];
   editable: boolean;
   onSave: (key: string, value: string) => Promise<void>;
+  onSuggestion?: (key: string, accept: boolean, value?: string) => Promise<void>;
 }) {
   // Flagged fields first, so you read what needs you before what doesn't.
   const sorted = [...fields].sort(
@@ -94,6 +158,16 @@ export function FieldsTable({
               ) : (
                 (f.planned_value ?? <span className="muted">empty</span>)
               )}
+              {f.suggestion ? (
+                <SuggestionNote
+                  field={f}
+                  onSettle={
+                    editable && onSuggestion
+                      ? (accept, v) => onSuggestion(f.field_key, accept, v)
+                      : undefined
+                  }
+                />
+              ) : null}
               {f.value_seen != null && f.value_seen !== f.planned_value ? (
                 <div className="warn">Page showed: {f.value_seen || "(empty)"}</div>
               ) : null}

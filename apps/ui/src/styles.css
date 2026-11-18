@@ -275,3 +275,37 @@ ul.plain {
   margin: 0;
   padding: 0;
 }
+
+.count {
+  display: inline-block;
+  margin-left: 6px;
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  background: var(--red, #c0392b);
+  color: #fff;
+}
+.question {
+  display: grid;
+  gap: 10px;
+}
+.question .wordings {
+  margin: 0;
+  padding-left: 18px;
+}
+.scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.suggestion {
+  border-left: 3px solid var(--line);
+  padding-left: 8px;
+  margin-top: 6px;
+}

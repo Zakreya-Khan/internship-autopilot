@@ -27,7 +27,6 @@ import {
   normalizeCompany,
   orderBaseResume,
   profileOwnWords,
-  questionKey,
   STANDARD_QUESTIONS,
   voiceNotes,
   wordCount,
@@ -35,6 +34,7 @@ import {
 import type { Draft, DraftRequest } from "@ia/ai";
 import { draftApplication, MODELS, modelTruthCheck, stopsTheRun, UsageLimitError } from "@ia/ai";
 import { parseCheckResume, renderCoverLetterPdf, renderResumePdf } from "@ia/render";
+import { filledFromBank, resolveQuestions } from "./answers.ts";
 import type { ApplicationRow, Store } from "./db.ts";
 import type { LivenessCheck } from "./liveness.ts";
 import { ensureOpen, PREP_RECHECK_MS } from "./liveness.ts";
@@ -72,9 +72,10 @@ export function prepInputs(deps: PrepDeps, posting: Posting, tier: Tier): PrepIn
   const { store } = deps;
   const app = store.applicationForPosting(posting.id) ?? store.createApplication(posting.id, tier);
   const questions = questionsFor(posting);
-  const learned = store.learnedAnswers();
+  // Questions your learned answers fill outright aren't drafted.
+  const fromBank = filledFromBank(store, questions, posting.company);
   const openToDraft = questions.filter(
-    (q) => classifyQuestion(q).kind === "open" && !learned.has(questionKey(q.label)),
+    (q) => classifyQuestion(q).kind === "open" && !fromBank.has(q.key),
   );
   const coverField = questions.find((q) => {
     const c = classifyQuestion(q);
@@ -355,7 +356,8 @@ export async function completePrep(
   }
   store.replaceDrafts(i.app.id, rows);
 
-  const plan = buildFillPlan(i.questions, profile, drafted, store.learnedAnswers(), {
+  const hits = await resolveQuestions(store, i.questions, i.posting.company, deps.llm);
+  const plan = buildFillPlan(i.questions, profile, drafted, (q) => hits.get(q.key) ?? null, {
     coverLetter: Boolean(letter) && !coverFlagged,
   });
   store.replaceFieldFills(i.app.id, plan);
