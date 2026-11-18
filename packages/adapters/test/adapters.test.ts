@@ -59,9 +59,9 @@ beforeEach(() => {
 });
 
 describe("Greenhouse", () => {
-  it("fills text, textarea, select and file fields, skips passwords, and never submits", () => {
+  it("fills text, textarea, select and file fields, skips passwords, and never submits", async () => {
     load("greenhouse.html");
-    const results = fillForm(
+    const results = await fillForm(
       greenhouse,
       document,
       [
@@ -116,9 +116,9 @@ describe("Greenhouse", () => {
 });
 
 describe("Lever", () => {
-  it("fills by name and ticks a labelled radio group", () => {
+  it("fills by name and ticks a labelled radio group", async () => {
     load("lever.html");
-    const results = fillForm(
+    const results = await fillForm(
       lever,
       document,
       [
@@ -150,13 +150,13 @@ describe("Lever", () => {
 });
 
 describe("Ashby", () => {
-  it("presses the matching Yes/No choice and nothing else", () => {
+  it("presses the matching Yes/No choice and nothing else", async () => {
     load("ashby.html");
     const pressed: string[] = [];
     document
       .querySelectorAll("button")
       .forEach((b) => b.addEventListener("click", () => pressed.push(b.textContent!)));
-    const results = fillForm(
+    const results = await fillForm(
       ashby,
       document,
       [

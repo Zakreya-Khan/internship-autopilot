@@ -1,21 +1,15 @@
-import type { Adapter } from "@ia/adapters";
-import { base64ToFile, fillForm, highlightSubmit, pickAdapter } from "@ia/adapters";
+import type { Adapter, FieldResult } from "@ia/adapters";
+import {
+  base64ToFile,
+  fillForm,
+  highlightSubmit,
+  pickAdapter,
+  runWizard,
+  waitFor,
+} from "@ia/adapters";
 import type { ContentReadyReply, ToBackground } from "./messages.ts";
 
 const send = <T>(msg: ToBackground) => chrome.runtime.sendMessage(msg) as Promise<T>;
-
-function waitFor<T>(probe: () => T | null, timeoutMs: number): Promise<T | null> {
-  return new Promise((resolve) => {
-    const start = Date.now();
-    const tick = () => {
-      const v = probe();
-      if (v) return resolve(v);
-      if (Date.now() - start > timeoutMs) return resolve(null);
-      setTimeout(tick, 300);
-    };
-    tick();
-  });
-}
 
 /** Watch for the site's confirmation page, which only appears after you press Submit. */
 function watchForConfirmation(adapter: Adapter): void {
@@ -53,8 +47,16 @@ async function main(): Promise<void> {
     watchForConfirmation(adapter);
     return;
   }
-  // Single-page apps render the form after load.
-  const root = await waitFor(() => adapter.formRoot(document), 15_000);
+  if (adapter.needsSignIn?.(document)) {
+    // Accounts and passwords are yours. The form is filled once you're signed in.
+    await send({
+      type: "content:error",
+      message:
+        "Sign in or create your account (use your password manager). Filling starts after that.",
+    });
+  }
+  // Single-page apps render the form after load; sign-in can take a few minutes.
+  const root = await waitFor(() => adapter.formRoot(document), adapter.formWaitMs ?? 15_000, 300);
   if (!root) {
     await send({ type: "content:error", message: "No application form found on this page." });
     return;
@@ -63,9 +65,17 @@ async function main(): Promise<void> {
   const files = Object.fromEntries(
     Object.entries(app.files).map(([kind, f]) => [kind, base64ToFile(f!.base64, f!.name)]),
   );
-  const results = fillForm(adapter, document, app.fields, files);
-  highlightSubmit(adapter, document);
-  await send({ type: "content:filled", results, snapshotHtml: root.outerHTML });
+  let results: FieldResult[];
+  if (adapter.nextStep) {
+    const outcome = await runWizard(adapter, document, app.fields, files);
+    results = outcome.results;
+    if (outcome.message) await send({ type: "content:error", message: outcome.message });
+  } else {
+    results = await fillForm(adapter, document, app.fields, files);
+    highlightSubmit(adapter, document);
+  }
+  const snapshot = adapter.formRoot(document)?.outerHTML ?? root.outerHTML;
+  await send({ type: "content:filled", results, snapshotHtml: snapshot });
   watchForConfirmation(adapter);
 }
 

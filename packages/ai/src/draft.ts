@@ -1,6 +1,6 @@
 import type { FormQuestion, Posting, Profile, ResumePlan, Tier } from "@ia/core";
 import { z } from "zod";
-import type { Effort, LlmClient, ModelId } from "./client.ts";
+import type { Effort, LlmClient, LlmRequest, ModelId } from "./client.ts";
 import { MODELS } from "./client.ts";
 import { profileForModel } from "./profile-context.ts";
 
@@ -113,8 +113,9 @@ export function effortFor(tier: Tier): Effort {
   return tier === "A" ? "high" : "medium";
 }
 
-export async function draftApplication(llm: LlmClient, req: DraftRequest): Promise<Draft> {
-  const res = await llm.generate({
+/** The exact request live drafting sends; the Batch API path sends the same one. */
+export function draftLlmRequest(req: DraftRequest): LlmRequest<DraftOutput> {
+  return {
     purpose: "draft",
     model: req.model ?? MODELS.opus,
     effort: effortFor(req.tier),
@@ -122,7 +123,11 @@ export async function draftApplication(llm: LlmClient, req: DraftRequest): Promi
     system: draftSystemPrompt(req.profile),
     user: draftUserPrompt(req),
     schema: DraftSchema,
-  });
+  };
+}
+
+export async function draftApplication(llm: LlmClient, req: DraftRequest): Promise<Draft> {
+  const res = await llm.generate(draftLlmRequest(req));
   return fromDraftOutput(res.data, req);
 }
 

@@ -52,3 +52,12 @@ export function pressChoice(el: HTMLElement, answer: string): void {
   }
   press(el);
 }
+
+/** Open a custom dropdown so an option can be chosen. Only elements that declare a listbox popup. */
+export function openListbox(el: HTMLElement): void {
+  const popup = el.getAttribute("aria-haspopup");
+  if (popup !== "listbox" && !(el.getAttribute("role") === "combobox" && popup)) {
+    throw new Error("openListbox only opens elements that declare a listbox popup");
+  }
+  press(el);
+}

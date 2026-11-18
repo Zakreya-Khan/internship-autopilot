@@ -36,4 +36,8 @@ export interface Adapter {
   isConfirmation(doc: Document, url: URL): boolean;
   /** Multi-step forms: the button to the next step, if this isn't the last one. */
   nextStep?(doc: Document): HTMLElement | null;
+  /** A sign-in or create-account screen is showing: the person handles it, never the tool. */
+  needsSignIn?(doc: Document): boolean;
+  /** How long to wait for the form to appear (sign-in can take minutes). */
+  formWaitMs?: number;
 }

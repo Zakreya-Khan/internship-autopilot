@@ -1,3 +1,4 @@
+export * from "./batch.ts";
 export * from "./client.ts";
 export * from "./fake.ts";
 export * from "./profile-context.ts";

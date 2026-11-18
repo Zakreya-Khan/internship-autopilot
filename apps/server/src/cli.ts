@@ -26,8 +26,13 @@ Phase 0
 Phase 1
   prep [--limit N] [--tier A,B] [--sonnet]
                        Tailor, truth-check and plan the best unprepared postings
-  serve [--port N] [--auto]
-                       Review UI + extension API on 127.0.0.1 (--auto: refresh + prep every 6 h)
+  serve [--port N] [--auto] [--batch]
+                       Review UI + extension API on 127.0.0.1 (--auto: refresh + prep every 6 h;
+                       --batch: Tier B drafting through the Batch API)
+Phase 2
+  batch submit [--limit N]
+                       Send Tier B drafting to the Message Batches API (half price, up to 24 h)
+  batch collect        Finish batches that have ended
 Options
   --offline            Never call the Claude API (keyword scoring, no drafting)
 `;

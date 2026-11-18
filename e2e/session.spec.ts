@@ -117,10 +117,10 @@ test("one application from approval to the tracker, with the person pressing Sub
 
   await page.setContent(FIXTURE);
   await page.addScriptTag({ content: bundle });
-  const results = await page.evaluate((app) => {
+  const results = await page.evaluate(async (app) => {
     const IA = (window as unknown as { IA: typeof Adapters }).IA;
     const files = { resume: IA.base64ToFile(app.files.resume.base64, app.files.resume.name) };
-    const r = IA.fillForm(IA.greenhouse, document, app.fields, files);
+    const r = await IA.fillForm(IA.greenhouse, document, app.fields, files);
     IA.highlightSubmit(IA.greenhouse, document);
     return r;
   }, next.application);

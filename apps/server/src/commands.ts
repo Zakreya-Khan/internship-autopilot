@@ -50,7 +50,7 @@ registerCommand("prep", async (ctx, args) => {
 registerCommand("serve", async (ctx, args) => {
   const { values } = parseArgs({
     args,
-    options: { port: { type: "string" }, auto: { type: "boolean" } },
+    options: { port: { type: "string" }, auto: { type: "boolean" }, batch: { type: "boolean" } },
     strict: false,
   });
   const port = Number(values.port ?? DEFAULT_PORT);
@@ -76,7 +76,17 @@ registerCommand("serve", async (ctx, args) => {
         await runScoring(deps);
         await runEnrichment(deps);
         await runScoring(deps);
-        await runPrep(deps, { limit: 25 });
+        if (values.batch && ctx.llm) {
+          // Tier A live at high effort; Tier B overnight through the Batch API at half price.
+          const { AnthropicBatchClient } = await import("@ia/ai");
+          const { collectPrepBatches, submitPrepBatch } = await import("./batch.ts");
+          const client = new AnthropicBatchClient();
+          await collectPrepBatches(deps, client);
+          await runPrep(deps, { limit: 25, tiers: ["A"] });
+          await submitPrepBatch(deps, client, { limit: 100 });
+        } else {
+          await runPrep(deps, { limit: 25 });
+        }
       } catch (e) {
         console.error(`background cycle failed: ${String(e)}`);
       }
@@ -90,4 +100,31 @@ registerCommand("serve", async (ctx, args) => {
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
   });
+});
+
+registerCommand("batch", async (ctx, args) => {
+  const [sub, ...rest] = args;
+  if (!ctx.llm) throw new Error("The Batch API needs Claude credentials (ANTHROPIC_API_KEY).");
+  const { AnthropicBatchClient } = await import("@ia/ai");
+  const { collectPrepBatches, submitPrepBatch } = await import("./batch.ts");
+  const client = new AnthropicBatchClient();
+  const deps = prepDeps(ctx);
+  if (sub === "submit") {
+    const { values } = parseArgs({
+      args: rest,
+      options: { limit: { type: "string" } },
+      strict: false,
+    });
+    const r = await submitPrepBatch(deps, client, { limit: Number(values.limit ?? 100) });
+    console.log(
+      r.batchId ? `submitted ${r.count} Tier B drafts as batch ${r.batchId}` : "nothing to batch",
+    );
+  } else if (sub === "collect") {
+    const r = await collectPrepBatches(deps, client);
+    console.log(
+      `${r.batches} open batch(es): ${r.pending} still running, ${r.completed} finished, ${r.failed} failed`,
+    );
+  } else {
+    console.log("Usage: npm run ia -- batch submit [--limit N] | batch collect");
+  }
 });

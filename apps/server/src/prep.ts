@@ -278,11 +278,13 @@ export function selectForPrep(
   const cap = profile.preferences.per_company_cap;
   const perCompany = new Map<string, number>();
   const out: PrepSelection[] = [];
+  const inBatch = new Set(store.openBatches().flatMap((b) => b.application_ids));
   for (const { posting, score } of store.rankedCandidates(5000)) {
     if (out.length >= (opts.limit ?? 25)) break;
     const tier = score.fit?.tier;
     if (!tier || !tiers.includes(tier)) continue;
     const existing = store.applicationForPosting(posting.id);
+    if (existing && inBatch.has(existing.id)) continue; // a Message Batch will finish it
     // An application left in "prepared" by a failed run is retried, outside the company cap.
     if (existing?.status === "prepared") {
       out.push({ posting, tier: existing.tier });

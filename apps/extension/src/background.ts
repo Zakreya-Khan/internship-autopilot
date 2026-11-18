@@ -66,6 +66,7 @@ chrome.runtime.onMessage.addListener((msg: ToBackground, sender, reply) => {
         await controller.onConfirmed(tabId, msg.url);
         break;
       case "content:error":
+        controller.note(tabId, msg.message);
         break;
       case "session:get":
         break;

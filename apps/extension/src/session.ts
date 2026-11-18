@@ -196,6 +196,11 @@ export class SessionController {
     }
   }
 
+  /** A message from the page (sign-in needed, a step needs you). Shown in the side panel. */
+  note(tabId: number, message: string): void {
+    if (tabId === this.state.tabId) this.set({ message });
+  }
+
   /** Not this one now: put it back to Approved and move on. */
   async skip(): Promise<void> {
     const app = this.current;
