@@ -55,6 +55,15 @@ describe("question classification", () => {
     ).toBe("user_only");
   });
 
+  it("never plans a password or access code, even beside a known field's words", () => {
+    for (const label of [
+      "Portfolio, Video, or Website Password",
+      "Website password (if protected)",
+      "Access code",
+    ])
+      expect(classifyQuestion(q(label)).kind).toBe("user_only");
+  });
+
   it("sends questions the profile can't answer to you", () => {
     for (const label of [
       "Do you know anyone who works here?",

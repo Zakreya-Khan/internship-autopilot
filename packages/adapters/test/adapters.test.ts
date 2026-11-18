@@ -116,6 +116,14 @@ describe("Greenhouse", () => {
 });
 
 describe("Lever", () => {
+  it("is picked on a Lever page even though its form id looks like Greenhouse's", () => {
+    load("lever.html");
+    expect(document.querySelector("form#application-form")).not.toBeNull();
+    expect(
+      pickAdapter(new URL("https://jobs.lever.co/acme/5b0c2f1e-1111/apply"), document)?.id,
+    ).toBe("lever");
+  });
+
   it("fills by name and ticks a labelled radio group", async () => {
     load("lever.html");
     const results = await fillForm(
@@ -219,5 +227,20 @@ describe("the click guard", () => {
     };
     roots.forEach(walk);
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("Ashby live layout", () => {
+  it("uses the form container, not the resume-autofill pane, when there is no <form>", () => {
+    document.body.innerHTML = `
+      <div class="ashby-application-form-autofill-pane"><input type="file" id="autofill"></div>
+      <div class="ashby-application-form-container">
+        <label for="_systemfield_name">Name</label><input id="_systemfield_name" name="_systemfield_name">
+        <label for="_systemfield_resume">Resume</label><input type="file" id="_systemfield_resume">
+        <button type="submit">Submit Application</button>
+      </div>`;
+    const root = ashby.formRoot(document)!;
+    expect(root.className).toContain("form-container");
+    expect(root.querySelector("#_systemfield_name")).not.toBeNull();
   });
 });

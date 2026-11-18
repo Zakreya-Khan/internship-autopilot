@@ -37,11 +37,17 @@ function labelledGroup(root: Element, label: string): Element | null {
   return hit?.closest(FIELD_CONTAINER) ?? null;
 }
 
+const OTHER_ATS_HOST =
+  /(^|\.)(lever\.co|ashbyhq\.com|myworkdayjobs\.com|myworkdaysite\.com|smartrecruiters\.com|icims\.com)$/;
+
 export const greenhouse: Adapter = {
   id: "greenhouse",
+  // A Greenhouse board embedded on a company's own site is recognized by its form. Other ATS
+  // hosts are never Greenhouse, even though Lever's form also uses id="application-form".
   matches: (url, doc) =>
     /(^|\.)greenhouse\.io$/.test(url.hostname) ||
-    !!doc.querySelector("#application_form, form#application-form, #grnhse_app"),
+    (!OTHER_ATS_HOST.test(url.hostname) &&
+      !!doc.querySelector("#application_form, form#application-form, #grnhse_app")),
   formRoot: (doc) =>
     doc.querySelector(
       "#application_form, form#application-form, #application-form, form[action*='greenhouse']",
@@ -76,8 +82,12 @@ export const lever: Adapter = {
 export const ashby: Adapter = {
   id: "ashby",
   matches: (url) => url.hostname === "jobs.ashbyhq.com",
+  // Live Ashby pages have no <form>, and the first "application-form" element is the
+  // "autofill from resume" pane. Use the container that holds the system fields.
   formRoot: (doc) =>
-    doc.querySelector("form.ashby-application-form, [class*='application-form'], form") ??
+    doc.querySelector(".ashby-application-form-container, form.ashby-application-form") ??
+    doc.querySelector("#_systemfield_name")?.closest("form, main, [class*='form-container']") ??
+    doc.querySelector("form") ??
     (visibleText(doc).toLowerCase().includes("submit application") ? doc.body : null),
   locate: (root, field, doc) => locateStandard(root, field, doc),
   locateSubmit: (doc) => buttonWithText(doc, /^submit application$/i),

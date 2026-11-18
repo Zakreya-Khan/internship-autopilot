@@ -104,6 +104,10 @@ export function classifyQuestion(q: Pick<FormQuestion, "key" | "label" | "type">
     if (/resume|cv/i.test(text) || /resume|cv/.test(key)) return { kind: "known", field: "resume" };
     return { kind: "needs_you", reason: "file upload other than resume or cover letter" };
   }
+  // Passwords, PINs and access codes are yours alone. Never planned, whatever else the label says
+  // (e.g. "Portfolio, Video, or Website Password").
+  if (/pass(word|code|phrase)|\bpin\b|access code/i.test(text) || /password|passcode/.test(key))
+    return { kind: "user_only", reason: "a password or access code; enter it yourself if needed" };
   if (USER_ONLY.some((re) => re.test(text)))
     return { kind: "user_only", reason: "a statement only you can make" };
   if (NEEDS_YOU.some((re) => re.test(text)))
