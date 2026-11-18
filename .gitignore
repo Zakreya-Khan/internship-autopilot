@@ -1,0 +1,28 @@
+# --- Personal data: never commit (this repo is public) ---
+profile.yaml
+profile.*.yaml
+!profile.example.yaml
+*.sqlite
+*.sqlite-*
+*.db
+data/
+out/
+snapshots/
+resumes/
+fixtures/private/
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Build / tooling ---
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+playwright-report/
+test-results/
+*.log
+.DS_Store

@@ -1,0 +1,76 @@
+# Example profile. Copy to profile.yaml (gitignored) and replace with your own facts.
+# Every fact has an id. AI-written text must cite fact ids, and claims with no source are rejected.
+# Everything below is a fictional placeholder.
+
+identity:
+  name: "Alex Example"
+  email: "alex@example.com"
+  phone: "+1 555 0100"
+  city: "Berkeley, CA"
+  links:
+    linkedin: "https://www.linkedin.com/in/example"
+    github: "https://github.com/example"
+    portfolio: null
+
+education:
+  - id: edu.main
+    school: "Example University"
+    degree: "B.S."
+    major: "Computer Science"
+    grad: 2028-05
+    gpa: null            # filled verbatim only if you set it; never rephrased
+    courses: [data-structures, algorithms, databases, machine-learning]
+
+experience:
+  - id: exp.lab
+    org: "University research lab"
+    title: "Undergraduate researcher"
+    start: 2026-01
+    end: present
+    facts:
+      - id: exp.lab.f1
+        text: "Built a Python pipeline that cleaned three years of sensor data"
+        tools: [python, pandas]
+        verified_metric: null   # a number appears only if you put it here
+
+projects:
+  - id: proj.app
+    name: "Course scheduler"
+    facts:
+      - id: proj.app.f1
+        text: "Wrote a web app that builds conflict-free class schedules"
+        tools: [typescript, react]
+        verified_metric: null
+
+skills:
+  # level: project | coursework | familiar. The AI may reorder skills but never adds or promotes one.
+  - { name: python, level: project }
+  - { name: typescript, level: project }
+  - { name: sql, level: coursework }
+
+# Filled verbatim. Never sent to the AI model.
+work_authorization:
+  authorized_us: true
+  needs_sponsorship_now: false
+  needs_sponsorship_later: false
+
+# Your own choice per category. "decline" is always allowed. Never sent to the AI model.
+eeo:
+  gender: decline
+  race_ethnicity: decline
+  veteran: decline
+  disability: decline
+
+logistics:
+  earliest_start: 2027-05
+  relocation: true
+
+# Your own reusable answers. The AI may shorten and rephrase them, but not add facts.
+answer_bank:
+  - id: ans.why_field
+    prompt: "Why are you interested in this field?"
+    answer: "Placeholder: write this in your own words."
+
+style:
+  voice: "plain, specific, no buzzwords"
+  cover_letter_words: [250, 350]
