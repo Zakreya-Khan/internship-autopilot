@@ -134,6 +134,19 @@ describe("runScoring", () => {
     expect(third).toMatchObject({ modelCalls: 0, reused: 2 });
   });
 
+  it("upgrades a keyword match from an offline run once a model is available", async () => {
+    const store = seeded();
+    const offline = await runScoring({ store, profile, llm: null, fetch: routeFetch({}), now });
+    expect(offline.modelCalls).toBe(0);
+    expect(store.getScore("good")!.fit?.match.method).toBe("keywords");
+    const llm = new FakeLlm({
+      requirements: () => ({ required: ["Python"], matched: ["Python"] }),
+    });
+    const online = await runScoring({ store, profile, llm, fetch: routeFetch({}), now });
+    expect(online.modelCalls).toBe(1);
+    expect(store.getScore("good")!.fit?.match.method).toBe("model");
+  });
+
   it("falls back to keywords when the model call fails", async () => {
     const store = seeded();
     const llm = new FakeLlm({});

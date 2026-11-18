@@ -1,8 +1,15 @@
 // Regressions from the second end-to-end pass (real Lever and Greenhouse forms, fictional profile).
 import { describe, expect, it } from "vitest";
 import type { FormQuestion } from "../src/index.ts";
-import { buildFillPlan, classifyQuestion, pickOption } from "../src/index.ts";
-import { testProfile } from "./fixtures.ts";
+import {
+  buildFillPlan,
+  classifyQuestion,
+  computeFitScore,
+  pickOption,
+  rankedMetros,
+  WEIGHTS,
+} from "../src/index.ts";
+import { makePosting, testProfile } from "./fixtures.ts";
 
 const profile = testProfile();
 const q = (label: string, extra: Partial<FormQuestion> = {}): FormQuestion => ({
@@ -61,5 +68,25 @@ describe("pass 2: question handling", () => {
       options: ["Female", "Male", "Non-Binary", "Not Declared", "Prefer to self-describe:"],
     });
     expect(plan([gender])[0]).toMatchObject({ value: "Not Declared", flag: null });
+  });
+});
+
+describe("pass 2: location ranking by metro area", () => {
+  const prefs = {
+    ...profile.preferences,
+    locations: ["New York", "NYC", "San Francisco", "Bay Area", "Seattle", "Bellevue"],
+  };
+  const p = { ...profile, preferences: prefs };
+  const loc = (where: string) =>
+    computeFitScore(makePosting({ locations: [where] }), p).components.location;
+
+  it("treats places in one metro as one choice, ranked in the order you listed them", () => {
+    expect(rankedMetros(prefs.locations)).toEqual(["new york", "bay area", "seattle"]);
+    expect(loc("NYC")).toBe(loc("New York, NY"));
+    expect(loc("NYC")).toBe(WEIGHTS.location);
+    expect(loc("Palo Alto, CA")).toBe(loc("San Francisco, CA"));
+    expect(loc("Bellevue, WA")).toBe(loc("Seattle, WA"));
+    expect(loc("San Francisco, CA")).toBeGreaterThan(loc("Seattle, WA"));
+    expect(loc("Brooklyn, NY")).toBe(WEIGHTS.location);
   });
 });

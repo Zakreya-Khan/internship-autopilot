@@ -70,14 +70,38 @@ function rankPoints(index: number, max: number): number {
   return Math.max(max * 0.4, max - index * (max * 0.2));
 }
 
+/** Places that are one metro area. Listing several of them in preferences is one choice, not several. */
+const METROS: [string, RegExp][] = [
+  ["new york", /\b(new york|nyc|manhattan|brooklyn|queens|jersey city)\b/i],
+  [
+    "bay area",
+    /\b(san francisco|sf|bay area|san jose|sunnyvale|mountain view|palo alto|menlo park|redwood city|santa clara|cupertino|oakland|san mateo|foster city)\b/i,
+  ],
+  ["seattle", /\b(seattle|bellevue|redmond|kirkland)\b/i],
+  ["boston", /\b(boston|cambridge, ma|somerville)\b/i],
+  ["los angeles", /\b(los angeles|santa monica|culver city|playa vista)\b/i],
+  ["washington dc", /\b(washington,? d\.?c\.?|arlington, va|mclean)\b/i],
+];
+
+function metroOf(place: string): string {
+  return METROS.find(([, re]) => re.test(place))?.[0] ?? place.trim().toLowerCase();
+}
+
+/** Your location preferences as ranked metro areas, in the order you listed them. */
+export function rankedMetros(prefs: string[]): string[] {
+  return [...new Set(prefs.map(metroOf))];
+}
+
 function locationPoints(posting: Posting, profile: Profile): number {
   const prefs = profile.preferences;
   if (posting.locations.length === 0) return WEIGHTS.location * 0.5;
   if (prefs.locations.length === 0) return WEIGHTS.location;
+  const metros = rankedMetros(prefs.locations);
   let best = -1;
   for (const loc of posting.locations) {
     const l = loc.toLowerCase();
-    const i = prefs.locations.findIndex((w) => l.includes(w.toLowerCase()));
+    const m = prefs.locations.findIndex((w) => l.includes(w.toLowerCase()));
+    const i = m >= 0 ? metros.indexOf(metroOf(prefs.locations[m]!)) : metros.indexOf(metroOf(loc));
     if (i >= 0 && (best < 0 || i < best)) best = i;
   }
   if (best >= 0) return rankPoints(best, WEIGHTS.location);

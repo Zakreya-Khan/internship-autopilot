@@ -130,7 +130,9 @@ export async function runScoring(
     }
     const prev = store.getScore(posting.id);
     let match: RequirementMatch;
-    if (prev?.fit && prev.input_hash === hash) {
+    // A keyword match saved by an offline run is upgraded once a model is available.
+    const upgrade = llm && posting.descriptionText && prev?.fit?.match.method === "keywords";
+    if (prev?.fit && prev.input_hash === hash && !upgrade) {
       match = prev.fit.match;
       report.reused++;
     } else if (llm && posting.descriptionText) {
