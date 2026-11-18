@@ -247,6 +247,24 @@ describe("Open & fill", () => {
     open.mockRestore();
   });
 
+  it("offers a plain link when the browser blocks the new tab", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    vi.mocked(api.launch).mockResolvedValue({
+      applyUrl: "https://careers.example.org/jobs/1",
+      ats: "greenhouse",
+    });
+    render(<OpenFill id={1} company="Co 1" />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open & fill" }));
+    });
+    const link = screen.getByRole("link", { name: "Open the application page" });
+    expect(link.getAttribute("href")).toBe("https://careers.example.org/jobs/1");
+    expect(link.getAttribute("rel")).toContain("noopener");
+    expect(screen.getByRole("status").textContent).toMatch(/blocked the new tab/);
+    expect(screen.getByRole("status").textContent).toMatch(/Fill this page/);
+    open.mockRestore();
+  });
+
   it("closes the blank tab and says why when it can't launch", async () => {
     const tab = { opener: {}, location: { href: "" }, close: vi.fn() };
     const open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);

@@ -170,6 +170,7 @@ export class JobRunner {
     void this.run(kind, params, tools).then(
       (o) => {
         view.status = abort.signal.aborted ? "cancelled" : "done";
+        if (view.progress && !abort.signal.aborted) view.progress.done = view.progress.total;
         view.summary = abort.signal.aborted ? `Cancelled. ${o.summary}` : o.summary;
         view.result = o.result ?? null;
         view.finishedAt = this.now().toISOString();
@@ -389,8 +390,8 @@ export class JobRunner {
   }
 }
 
-function sourcingLine(s: { added: number; merged: number; closed: number; fetched: number }) {
-  return `Read ${s.fetched} listings: ${plural(s.added, "new posting")}, ${s.merged} updated, ${s.closed} closed.`;
+function sourcingLine(s: { added: number; closed: number; fetched: number }) {
+  return `Read ${s.fetched} listings: ${plural(s.added, "new posting")}, ${s.closed} closed since last time.`;
 }
 
 /** An error as a sentence a person can act on. */

@@ -5,6 +5,8 @@ import { JobStatus, useJob, when } from "../components/Jobs.tsx";
 import { OpenFill } from "../components/OpenFill.tsx";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** "needs" for one, "need" for several. */
+const verb = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
 /** The home page: what to do next, in order, with the button that does it. */
 export function Home() {
@@ -62,7 +64,9 @@ export function Home() {
       done: s.ready === 0,
       body: (
         <>
-          <h2>Approve {plural(s.ready, "application")} that are ready</h2>
+          <h2>
+            Approve {plural(s.ready, "application")} that {verb(s.ready, "is", "are")} ready
+          </h2>
           <p className="muted">Read the tailored resume and answers, then approve or skip.</p>
           <a className="button" href="#/queue/ready">
             Review ready
@@ -101,7 +105,9 @@ export function Home() {
       done: s.filled === 0,
       body: (
         <>
-          <h2>{plural(s.filled, "filled page")} waiting for your Submit</h2>
+          <h2>
+            {plural(s.filled, "filled page")} {verb(s.filled, "is", "are")} waiting for your Submit
+          </h2>
           <p className="muted">
             Press Submit on the site. The extension records it when it sees the confirmation page;
             if it didn't, mark it on the application.
@@ -117,7 +123,9 @@ export function Home() {
       done: s.needsInput === 0,
       body: (
         <>
-          <h2>{plural(s.needsInput, "application")} need your input</h2>
+          <h2>
+            {plural(s.needsInput, "application")} {verb(s.needsInput, "needs", "need")} your input
+          </h2>
           <p className="muted">
             Usually a question in the inbox, a draft the truth check stopped, or a file to attach.
           </p>

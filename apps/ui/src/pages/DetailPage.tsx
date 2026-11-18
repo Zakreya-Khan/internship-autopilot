@@ -125,7 +125,7 @@ export function DetailPage({ id }: { id: number }) {
         <div className="actions">
           {a.status === "ready" ? (
             <button onClick={() => void guard(() => api.setStatus(a.id, "approved"))}>
-              Approve <kbd>a</kbd>
+              Approve
             </button>
           ) : null}
           {a.status === "approved" ? <OpenFill id={a.id} company={p.company} /> : null}
@@ -151,6 +151,9 @@ export function DetailPage({ id }: { id: number }) {
         </div>
       </header>
       {error ? <p role="alert">{error}</p> : null}
+      <p className="muted small">
+        Keys: <kbd>a</kbd> approve, <kbd>s</kbd> skip, <kbd>Esc</kbd> back to the queue.
+      </p>
       <p>
         Status: <strong>{STATUS_LABEL[a.status] ?? a.status}</strong>
         {d.flags.red ? ` · ${d.flags.red} field(s) need you before this can be approved` : ""}

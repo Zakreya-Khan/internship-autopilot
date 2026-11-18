@@ -45,7 +45,7 @@ export function Stats() {
     void load();
   }, []);
 
-  if (!s) return error ? <p role="alert">{error}</p> : <p>Loading…</p>;
+  if (!s) return error ? <p role="alert">{error}</p> : <p>Loading stats…</p>;
   const spend = s.cost.filter((c) => c.provider !== "cli").reduce((a, c) => a + c.usd, 0);
   const cliCalls = s.cost.filter((c) => c.provider === "cli").reduce((a, c) => a + c.calls, 0);
   return (
@@ -100,6 +100,46 @@ export function Stats() {
           </ul>
         </section>
       ) : null}
+      {(s.totals.sent ?? 0) === 0 ? (
+        <div className="empty panel">
+          <p>
+            Reply rates appear here once you've sent applications. Approved ones are on{" "}
+            <a href="#/queue/approved">Ready to fill</a>.
+          </p>
+        </div>
+      ) : null}
+      <section className="panel">
+        <h2>Model spend</h2>
+        {s.cost.length ? (
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">What for</th>
+                <th scope="col">Through</th>
+                <th scope="col">Calls</th>
+                <th scope="col">Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {s.cost.map((c) => (
+                <tr key={`${c.provider}-${c.purpose}`}>
+                  <td>{c.purpose.replace(/_/g, " ")}</td>
+                  <td>{c.provider === "cli" ? "Claude CLI" : "API key"}</td>
+                  <td>{c.calls}</td>
+                  <td>
+                    ${c.usd.toFixed(2)}
+                    {c.provider === "cli" ? (
+                      <span className="muted small"> est., not billed</span>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="muted">No model calls yet.</p>
+        )}
+      </section>
       <div className="columns">
         <RateTable title="By score band" rows={s.byScoreBand} />
         <RateTable title="By tier" rows={s.byTier} />

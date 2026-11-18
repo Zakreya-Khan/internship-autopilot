@@ -84,7 +84,10 @@ function Count({ n, label, tone }: { n: number | undefined; label: string; tone?
 export function App() {
   const [route, setRoute] = useState(() => parseRoute(window.location.hash));
   useEffect(() => {
-    const on = () => setRoute(parseRoute(window.location.hash));
+    const on = () => {
+      setRoute(parseRoute(window.location.hash));
+      window.scrollTo(0, 0); // a new page starts at the top
+    };
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);

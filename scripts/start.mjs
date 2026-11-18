@@ -38,6 +38,7 @@ function newest(paths) {
 const stale = (built, sources) => !existsSync(built) || statSync(built).mtimeMs < newest(sources);
 
 function openBrowser(url) {
+  if (process.env.IA_NO_OPEN) return; // tests and remote use: start without opening a browser
   const [cmd, args] =
     process.platform === "darwin"
       ? ["open", [url]]

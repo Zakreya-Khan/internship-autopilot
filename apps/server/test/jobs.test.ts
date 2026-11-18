@@ -84,7 +84,7 @@ describe("JobRunner", () => {
     await jobs.idle();
     const done = jobs.get(job.id)!;
     expect(done.status).toBe("done");
-    expect(done.summary).toMatch(/^Read 2 listings: 1 new posting, 1 updated, 0 closed\./);
+    expect(done.summary).toMatch(/^Read 2 listings: 1 new posting, 0 closed since last time\./);
     expect(done.progress).not.toBeNull();
     expect(store.allPostings()).toHaveLength(1);
   });

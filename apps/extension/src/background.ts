@@ -70,7 +70,9 @@ chrome.runtime.onMessage.addListener((msg: ToBackground, sender, reply) => {
         return;
       case "session:inject": {
         // Only after you granted this one site in the side panel (chrome.permissions.request).
-        const id = controller.get().tabId;
+        // A running session fills its own tab. Otherwise this is the tab you opened with
+        // "Open & fill" in the review UI; the filler asks the server for that application.
+        const id = controller.get().tabId ?? msg.tabId ?? null;
         if (id !== null)
           await chrome.scripting.executeScript({
             target: { tabId: id, allFrames: true },

@@ -38,6 +38,13 @@ export function useJob(kind: JobKind, onFinish?: (job: JobView) => void) {
     };
   }, [kind]);
 
+  // A "still running" refusal is stale once any job finishes.
+  useEffect(() => {
+    const clear = () => setError(null);
+    window.addEventListener("ia:changed", clear);
+    return () => window.removeEventListener("ia:changed", clear);
+  }, []);
+
   const id = job?.id;
   const running = job?.status === "running";
   useEffect(() => {

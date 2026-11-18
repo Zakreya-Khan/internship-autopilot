@@ -37,6 +37,7 @@ const SOURCE_LABEL: Record<string, string> = {
   smartrecruiters: "SmartRecruiters",
   icims: "iCIMS",
   manual: "Added by you",
+  other: "Other sites",
 };
 
 export function Discover() {
@@ -234,7 +235,8 @@ export function Discover() {
 
       <div className="bulk row" aria-label="Selected postings">
         <span className="muted small">
-          {picked.size ? `${picked.size} selected` : "Tick postings to act on several at once."}
+          {data ? `${data.total} ${data.total === 1 ? "match" : "matches"}. ` : ""}
+          {picked.size ? `${picked.size} selected.` : "Tick postings to act on several at once."}
         </span>
         <div className="actions">
           <button
@@ -260,7 +262,11 @@ export function Discover() {
           ) : null}
         </div>
       </div>
-      <JobStatus job={prep.job} error={prep.error} onCancel={() => void prep.cancel()} />
+      <JobStatus job={prep.job} error={prep.error} onCancel={() => void prep.cancel()}>
+        <p>
+          <a href="#/queue">Review them in the queue</a>
+        </p>
+      </JobStatus>
       <JobStatus job={check.job} error={check.error} onCancel={() => void check.cancel()} />
       {note ? <p role="status">{note}</p> : null}
       {error ? <p role="alert">{error}</p> : null}

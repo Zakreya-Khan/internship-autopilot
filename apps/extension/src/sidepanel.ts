@@ -36,7 +36,11 @@ function render(s: SessionState): void {
   $<HTMLButtonElement>("confirm").hidden = s.phase !== "waiting_for_you";
   $<HTMLButtonElement>("skip").hidden = !running;
   $<HTMLButtonElement>("end").hidden = !running;
-  $<HTMLButtonElement>("generic").hidden = !(running && s.needsGeneric);
+  // In a session: for a site the extension doesn't know. Outside one: for the tab you opened
+  // with "Open & fill" in the review UI, on such a site.
+  const generic = $<HTMLButtonElement>("generic");
+  generic.hidden = running && !s.needsGeneric;
+  generic.textContent = running ? "Fill this page" : "Fill this page (opened from the review UI)";
 }
 
 function li(text: string): HTMLLIElement {
@@ -54,7 +58,7 @@ $("generic").addEventListener("click", () => {
     if (!tab?.url) return;
     // Chrome asks you to allow this one site. Nothing is injected without that.
     const granted = await chrome.permissions.request({ origins: [`${new URL(tab.url).origin}/*`] });
-    if (granted) render(await send({ type: "session:inject" }));
+    if (granted) render(await send({ type: "session:inject", tabId: tab.id }));
   })();
 });
 $("end").addEventListener("click", () => void send({ type: "session:end" }).then(render));

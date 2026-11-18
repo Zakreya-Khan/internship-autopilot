@@ -22,33 +22,32 @@ All four phases from the spec are built: sourcing and scoring, tailoring with a 
 
 Requirements: Node 22.13 or later (24 recommended), and Chrome 116 or later.
 
-```bash
-npm install
-npm run ia -- init          # creates profile.yaml (gitignored), the data folder and your extension token
-```
-
-1. Fill in `profile.yaml`: facts with ids, skills with honest levels, work authorization, EEO choices (`decline` is fine), and your preferences.
-2. For tailored drafts, give it a way to reach Claude: an Anthropic API key (`ANTHROPIC_API_KEY`), or the Claude Code CLI on your Claude subscription. See [Reaching Claude](#reaching-claude-api-key-or-claude-cli). Without either, everything runs offline: keyword scoring, your base resume, and open questions left for you.
-3. Find and prepare applications:
+**Start it.** On a Mac, double-click **`Start Internship Autopilot.command`** in this folder (the first time, right-click it and choose Open). Anywhere else, run:
 
 ```bash
-npm run ia -- refresh       # poll sources, score, fetch details, rescore
-npm run ia -- list --tier A
-npm run ia -- check-open    # are the top candidates still open? closed ones are dropped for good
-npm run ia -- prep --limit 10
+npm start
 ```
 
-4. Build and start the review UI:
+Either way it installs what's missing, builds the review UI and the extension if they're out of date, starts the local server (on 127.0.0.1, so only this computer can reach it) and opens <http://127.0.0.1:4317/> in your browser. If it's already running, it just opens the browser. Close the window, or press Ctrl-C, to stop it.
 
-```bash
-npm run build
-npm run ia -- serve         # http://127.0.0.1:4317
-```
+The first time, with no `profile.yaml` yet, it creates one from the example and opens it: fill it in (facts with ids, skills with honest levels, work authorization, EEO choices, where `decline` is fine, and your preferences), then start again.
 
-5. Load the extension: open `chrome://extensions`, turn on Developer mode, choose "Load unpacked", and pick `apps/extension/dist`. On its options page, paste the token from `init`.
-6. In the UI, review and approve applications. In the extension's side panel, press **Start session**. Each approved application opens filled; you check it, solve any CAPTCHA, and press the site's own Submit. The session then moves to the next one.
+**Then everything happens in the browser:**
 
-## Commands
+1. **Settings:** choose how to reach Claude, with an Anthropic API key or the Claude CLI on your subscription ([details](#reaching-claude-api-key-or-claude-cli)). Without either, everything still runs, offline: keyword scoring, your base resume, and open questions left for you. Settings also shows the server address and token the extension needs.
+2. **Load the extension once:** open `chrome://extensions`, turn on Developer mode, choose "Load unpacked", pick `apps/extension/dist`, and paste the server and token from Settings into its options page.
+3. **Home** lists what to do next, in order, with the button for each step. On a fresh install that's **Find postings**.
+4. **Discover** lists every posting found, with search, filters (tier, fit, company, location, source, open or closed, status) and sorting. Tick postings to **Prepare** them, check they're still open, or skip them.
+5. **Questions** collects what only you can answer; one answer fills every application asking it.
+6. **Queue**: read each tailored resume and set of answers, then approve or skip. Keys: <kbd>j</kbd>/<kbd>k</kbd> to move, <kbd>a</kbd> to approve, <kbd>s</kbd> to skip, <kbd>p</kbd> to park, <kbd>Enter</kbd> to open.
+7. **Open & fill**, on an approved application: it opens in a new tab and the extension fills it. You check the page, solve any CAPTCHA, and press the site's own Submit. The extension records it when it sees the confirmation page; otherwise mark it yourself on the application. To go through all approved applications in a row, press **Start session** in the extension's side panel instead.
+8. **Tracker** and **Stats** follow what happens next. **Tools** has everything else: finding postings with options, checking which are still open, preparing in bulk, the Batch API (send, collect, cancel), interview stories, outreach drafts, updating statuses from an email export, and the tracker export.
+
+Long work (finding postings, preparing, batches) runs in the background on your computer, with progress you can watch and a Cancel button. You can leave the page and come back. Only one job that changes postings or applications runs at a time; starting a second says which one is running.
+
+## Command line (optional)
+
+Everything above can also be done from a terminal, which is handy for scripting. `npm run ia -- help` lists the commands. The two that have no button are `init` (`npm start` runs it for you) and `serve --auto`, which refreshes and prepares every 6 hours while the server runs.
 
 | Command                                    | What it does                                                                                                                        |
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
@@ -67,7 +66,7 @@ npm run ia -- serve         # http://127.0.0.1:4317
 | `email-sync <mbox\|folder> [--dry-run]`    | Update statuses from a local email export. Rule-based; nothing leaves your machine.                                                 |
 | `cost`                                     | Model spend so far, from logged usage. Claude CLI calls are listed apart, as estimates your subscription covers.                    |
 
-Add `--offline` to any command to keep it from calling Claude, or `--provider api|cli` to choose how it reaches Claude for that run.
+Add `--offline` to any command to keep it from calling Claude, or `--provider api|cli` to choose how it reaches Claude for that run. A command-line `prep` and a Prepare started in the UI never run at the same time: whichever starts second does nothing and says which one is running.
 
 ## How it fits together
 

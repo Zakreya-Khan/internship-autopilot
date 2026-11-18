@@ -13,7 +13,8 @@ export type ToBackground =
   | { type: "content:confirmed"; url: string }
   | { type: "content:error"; message: string }
   | { type: "content:map"; fields: PageFieldInfo[] }
-  | { type: "session:inject" };
+  /** Inject the filler into the session's tab, or (no session running) into this tab. */
+  | { type: "session:inject"; tabId?: number };
 
 export type ContentReadyReply = TabJob;
 
