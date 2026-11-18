@@ -1,3 +1,4 @@
+import { indexFacts } from "@ia/core";
 import { makePosting, testProfile } from "@ia/core/testing";
 import { describe, expect, it } from "vitest";
 import {
@@ -87,7 +88,20 @@ describe("modelTruthCheck", () => {
     ]);
     expect(issues).toEqual([{ where: "b", problem: '"led a team of 5"', severity: "block" }]);
     expect(llm.requests[0]).toMatchObject({ model: MODELS.opus, effort: "low" });
-    expect(llm.requests[0]!.user).toContain("exp.lab.f1: Built a Python pipeline");
+    expect(llm.requests[0]!.user).toContain("exp.lab.f1 (");
+    expect(llm.requests[0]!.user).toContain("): Built a Python pipeline");
+  });
+
+  it("shows the checker each fact's role or project, as the drafter sees it", async () => {
+    const llm = new FakeLlm({ truth_check: () => ({ verdicts: [] }) });
+    await modelTruthCheck(llm, profile, [
+      { where: "a", text: "x", factIds: ["exp.lab.f1", "nope"], mustCite: true },
+    ]);
+    const user = llm.requests[0]!.user;
+    const fact = indexFacts(profile).get("exp.lab.f1")!;
+    expect(user).toContain(`exp.lab.f1 (${fact.origin}): ${fact.text}`);
+    expect(user).toContain("nope: (unknown id)");
+    expect(llm.requests[0]!.system).toMatch(/source is part of the fact/);
   });
 
   it("skips the call when there is nothing to check", async () => {

@@ -11,7 +11,7 @@ import {
   upsertAll,
 } from "@ia/core";
 import type { LlmClient } from "@ia/ai";
-import { matchRequirements } from "@ia/ai";
+import { matchRequirements, profileForModel } from "@ia/ai";
 import type { FetchFn } from "@ia/sources";
 import { canEnrich, fetchPostingDetail, HostRateLimiter, pollSources } from "@ia/sources";
 import type { Store } from "./db.ts";
@@ -111,8 +111,10 @@ export async function runScoring(
 ): Promise<ScoringReport> {
   const { store, profile, llm } = deps;
   const now = deps.now?.() ?? new Date();
-  // Writing style (resume wording, cover letter, samples) doesn't change fit, so it isn't hashed.
-  const profileHash = shortHash(JSON.stringify({ ...profile, style: null }));
+  // The match is keyed on exactly what the model sees of the profile (skills, education, facts).
+  // Preferences (locations, tier cutoffs) and writing style are applied fresh on every run below,
+  // so changing them re-scores without a model call.
+  const profileHash = shortHash(profileForModel(profile));
   const report: ScoringReport = { considered: 0, passed: 0, dropped: 0, modelCalls: 0, reused: 0 };
   await mapLimit(store.openPostings(), opts.concurrency ?? 4, async (posting) => {
     report.considered++;

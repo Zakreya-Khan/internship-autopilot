@@ -132,6 +132,23 @@ describe("runScoring", () => {
     };
     const third = await runScoring({ store, profile: restyled, llm, fetch: routeFetch({}), now });
     expect(third).toMatchObject({ modelCalls: 0, reused: 2 });
+
+    // Neither do tier cutoffs, though the new cutoff applies at once.
+    const strict = {
+      ...profile,
+      preferences: { ...profile.preferences, tier_thresholds: { a: 101, b: 100 } },
+    };
+    const fourth = await runScoring({ store, profile: strict, llm, fetch: routeFetch({}), now });
+    expect(fourth).toMatchObject({ modelCalls: 0, reused: 2 });
+    expect(store.getScore("good")!.fit?.tier).toBe("C");
+
+    // A new skill does change the match, so it is asked again.
+    const grown = {
+      ...profile,
+      skills: [...profile.skills, { name: "Rust", level: "familiar" as const }],
+    };
+    const fifth = await runScoring({ store, profile: grown, llm, fetch: routeFetch({}), now });
+    expect(fifth.modelCalls).toBe(1);
   });
 
   it("upgrades a keyword match from an offline run once a model is available", async () => {

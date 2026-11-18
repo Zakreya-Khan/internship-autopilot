@@ -21,11 +21,15 @@ For each item, decide whether every factual claim in the text is supported by th
 Rewording, shortening and emphasis are fine. Anything new is not: an added skill, tool, result, number,
 title, responsibility, team size, or a stronger level of skill than the facts show.
 Statements of interest or motivation that make no factual claim about the candidate are supported.
+Each cited fact names where it comes from in parentheses: the role title and organization, or the
+project name. That source is part of the fact: a role titled "Founder" supports "founded", and a
+project named after NASA supports mentioning NASA.
 Judge only against the cited facts given. Be strict; when unsure, mark it unsupported.`;
 
 /**
- * Second pass, separate from drafting: the checker sees only each text and its cited facts,
- * not the posting or the drafting instructions.
+ * Second pass, separate from drafting: the checker sees only each text and its cited facts
+ * (with the role or project each comes from, as the drafter saw them), not the posting or
+ * the drafting instructions.
  */
 export async function modelTruthCheck(
   llm: LlmClient,
@@ -37,8 +41,12 @@ export async function modelTruthCheck(
   const items = claims
     .map((c) => {
       const cited =
-        c.factIds.map((id) => `  - ${id}: ${facts.get(id)?.text ?? "(unknown id)"}`).join("\n") ||
-        "  (no facts cited)";
+        c.factIds
+          .map((id) => {
+            const f = facts.get(id);
+            return f ? `  - ${id} (${f.origin}): ${f.text}` : `  - ${id}: (unknown id)`;
+          })
+          .join("\n") || "  (no facts cited)";
       return `<item where="${c.where}">\nText: ${c.text}\nCited facts:\n${cited}\n</item>`;
     })
     .join("\n");
