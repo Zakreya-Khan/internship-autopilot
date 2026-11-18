@@ -477,11 +477,15 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const settingsView = async () => {
     const status = await providerStatus(store, mustPaths(), deps.env ?? process.env);
     const active = buildLlm({ store, paths: mustPaths(), env: deps.env ?? process.env });
+    // A CLI that's installed but signed out can't make calls either.
+    const signedOut = status.selected === "cli" && status.cli.signedIn === false;
     return {
       ...status,
       labels: PROVIDER_LABELS,
-      ready: active.llm !== null,
-      reason: active.reason,
+      ready: active.llm !== null && !signedOut,
+      reason: signedOut
+        ? 'the Claude CLI isn\'t signed in. Run "claude" once in a terminal and sign in.'
+        : active.reason,
     };
   };
   const reload = () => {

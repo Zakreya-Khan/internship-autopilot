@@ -117,7 +117,7 @@ export function Settings() {
                       void run(() => api.saveApiKey(k));
                     }}
                   >
-                    <label>
+                    <label className="settings-field">
                       <span className="sr-only">Paste an Anthropic API key</span>
                       <input
                         type="password"
@@ -149,7 +149,7 @@ export function Settings() {
                         void run(() => api.setProvider({ cliPath: cliPath.trim() || null }));
                       }}
                     >
-                      <label>
+                      <label className="settings-field">
                         <span className="sr-only">Path to the claude command</span>
                         <input
                           placeholder="Path to claude (blank: find it automatically)"

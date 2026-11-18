@@ -220,6 +220,19 @@ describe("Settings API", () => {
     expect((await call("PUT", "/api/settings/provider", { provider: "gpt" })).statusCode).toBe(400);
   });
 
+  it("doesn't call a signed-out CLI ready", async () => {
+    const { call, bin, env } = server();
+    env.FAKE_CLAUDE_MODE = "logged-out";
+    const s = (
+      await call("PUT", "/api/settings/provider", { provider: "cli", cliPath: bin })
+    ).json();
+    expect(s).toMatchObject({
+      ready: false,
+      reason: expect.stringMatching(/isn't signed in/),
+      cli: { found: true, signedIn: false },
+    });
+  });
+
   it("tests a connection with one tiny call", async () => {
     const { call, bin } = server();
     expect((await call("POST", "/api/settings/provider/test", { provider: "api" })).json()).toEqual(

@@ -180,6 +180,11 @@ export async function main(argv: string[]): Promise<number> {
   }
   const { provider, args } = takeProvider(rest);
   const ctx = openContext({ offline: args.includes("--offline"), provider });
+  if (provider && !ctx.llm && !args.includes("--offline")) {
+    // You asked for this provider by name: don't quietly fall back to offline work.
+    ctx.store.close();
+    throw new Error(`${PROVIDER_LABELS[provider]} isn't available: ${ctx.llmReason}`);
+  }
   if (provider) console.log(`Using ${PROVIDER_LABELS[provider]} for this run.`);
   try {
     await cmd(
