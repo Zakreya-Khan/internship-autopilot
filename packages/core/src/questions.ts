@@ -79,8 +79,14 @@ const RULES: [RegExp, KnownField][] = [
   [/disabilit/i, "eeo_disability"],
   [/(earliest |available )?start date|when can you start/i, "start_date"],
   [/relocat/i, "relocation"],
-  [/how did you (hear|find|learn)|source of (your )?application|referred by a/i, "how_heard"],
-  [/^(current|present|most recent) (company|employer|organi[sz]ation)\b/i, "current_company"],
+  [
+    /how (did )?you (hear|heard|find|found|learn|learned) about|source of (your )?application|referred by a/i,
+    "how_heard",
+  ],
+  [
+    /^(current|present|most recent) (company|employer|organi[sz]ation)\b|^candidate['’]?s (current )?(company|employer)$/i,
+    "current_company",
+  ],
 ];
 
 /** "If yes, ..." and the like: only needed when an earlier answer calls for it. */

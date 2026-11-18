@@ -35,6 +35,16 @@ describe("pass 2: question handling", () => {
     });
   });
 
+  it("recognizes live wordings of 'how did you hear' and 'current company'", () => {
+    expect(
+      classifyQuestion(q("Please tell us how you heard about this internship opportunity")),
+    ).toEqual({ kind: "known", field: "how_heard" });
+    expect(classifyQuestion(q("Candidate's Company"))).toEqual({
+      kind: "known",
+      field: "current_company",
+    });
+  });
+
   it("treats 'If yes, ...' follow-ups as optional, never drafted by the model", () => {
     for (const label of [
       "If yes, can you provide the company with a copy of the agreement?",
