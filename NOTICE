@@ -13,6 +13,8 @@ Parts of this project adapt logic, regular expressions and word lists from caree
   - packages/core/src/voice.ts: the numeric writing-sample measures (writing-profile.mjs)
   - packages/core/src/stories.ts: STAR story fields and the number provenance check
     (lib/story-bank.mjs, story-provenance-check.mjs, verify-cv-facts.mjs)
+  - packages/ai/src/outreach.ts: the three-sentence message structure and length cap
+    (modes/contacto.md)
 
 The code was rewritten in TypeScript for this project; none of the original files are included.
 

@@ -41,6 +41,10 @@ Phase 3
   stats                Response rates by tier, score band, source and ATS; what's due; suggestions
   export [--out FILE] [--format csv|tsv]
                        Tracker export for Google Sheets or Excel
+  stories [--count N]  Interview story bank (STAR) from your facts, written to data/stories.md.
+                       Every number must appear in a fact the story cites.
+  outreach <posting id | URL> [--to recruiter|referral]
+                       Draft a short message for you to send yourself. Never sent; no LinkedIn.
   email-sync <mbox|folder> [--dry-run]
                        Update statuses from an email export (local only, rule-based)
 Options

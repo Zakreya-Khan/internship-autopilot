@@ -287,5 +287,9 @@ export function writingRulesPrompt(): string {
 
 /** Your own words from the profile: banned phrases you wrote yourself are allowed. */
 export function profileOwnWords(profile: Profile): string {
-  return [...indexFacts(profile).values()].map((f) => f.text).join("\n");
+  return [
+    ...[...indexFacts(profile).values()].map((f) => f.text),
+    ...profile.experience.flatMap((e) => [e.title, e.org, `${e.title}, ${e.org}`]),
+    ...profile.projects.map((x) => x.name),
+  ].join("\n");
 }

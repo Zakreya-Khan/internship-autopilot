@@ -291,3 +291,73 @@ registerCommand("check-open", async (ctx, args) => {
     `\n${counts.active} open, ${counts.expired} closed (recorded, won't come back), ${counts.uncertain} unclear (kept)`,
   );
 });
+
+registerCommand("stories", async (ctx, args) => {
+  const { values } = parseArgs({ args, options: { count: { type: "string" } }, strict: false });
+  const { checkStory, storiesFromFacts, storiesMarkdown } = await import("@ia/core");
+  const { writeFileSync, mkdirSync } = await import("node:fs");
+  let stories;
+  if (ctx.llm) {
+    const { draftStories } = await import("@ia/ai");
+    stories = await draftStories(ctx.llm, ctx.profile, Number(values.count ?? 8));
+  } else {
+    console.log("No Claude credentials (or --offline): one story per entry, in your own words.");
+    stories = storiesFromFacts(ctx.profile);
+  }
+  const issues = stories.flatMap((s) => checkStory(ctx.profile, s));
+  mkdirSync(ctx.paths.home, { recursive: true });
+  const out = `${ctx.paths.home}/stories.md`;
+  writeFileSync(out, storiesMarkdown(stories, issues));
+  const flagged = new Set(issues.map((i) => i.story)).size;
+  console.log(
+    `Wrote ${stories.length} stories to ${out}; ${flagged} need checking (marked in the file).`,
+  );
+});
+
+registerCommand("outreach", async (ctx, args) => {
+  const { values, positionals } = parseArgs({
+    args,
+    options: { to: { type: "string" } },
+    allowPositionals: true,
+    strict: false,
+  });
+  const ref = positionals.join(" ").trim();
+  const kind = values.to === "referral" ? "referral" : "recruiter";
+  if (!ref)
+    throw new Error(
+      "Usage: npm run ia -- outreach <posting id | apply URL> [--to recruiter|referral]",
+    );
+  const posting =
+    ctx.store.getPosting(ref) ?? ctx.store.allPostings().find((p) => p.applyUrl === ref) ?? null;
+  if (!posting)
+    throw new Error(`No stored posting matches "${ref}". Use an id from the review UI.`);
+  if (!ctx.llm) throw new Error("Outreach drafts need Claude credentials (ANTHROPIC_API_KEY).");
+  const { draftOutreach, OUTREACH_MAX_CHARS } = await import("@ia/ai");
+  const { checkClaims, checkWriting, profileOwnWords } = await import("@ia/core");
+  const d = await draftOutreach(ctx.llm, ctx.profile, posting, kind);
+  const problems = [
+    ...checkClaims(ctx.profile, [
+      {
+        where: "message",
+        text: d.message,
+        factIds: d.factIds,
+        mustCite: false,
+        context: `${posting.company}\n${posting.title}`,
+      },
+    ])
+      .filter((i) => i.severity === "block")
+      .map((i) => i.problem),
+    ...checkWriting([{ where: "message", text: d.message }], profileOwnWords(ctx.profile)).map(
+      (w) => w.problem,
+    ),
+    ...(d.message.length > OUTREACH_MAX_CHARS
+      ? [`${d.message.length} characters; trim to ${OUTREACH_MAX_CHARS}`]
+      : []),
+  ];
+  console.log(
+    `Draft (${kind}, ${d.message.length} characters). Not sent; copy it if you want it.\n`,
+  );
+  console.log(d.message);
+  if (problems.length)
+    console.log(`\nFix before sending:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
+});

@@ -18,3 +18,4 @@ export * from "./truth.ts";
 export * from "./types.ts";
 export * from "./writing.ts";
 export * from "./voice.ts";
+export * from "./stories.ts";
