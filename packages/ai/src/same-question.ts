@@ -3,16 +3,16 @@ import type { LlmClient } from "./client.ts";
 import { MODELS } from "./client.ts";
 
 export const SameQuestionSchema = z.object({
-  same: z
-    .boolean()
-    .describe("True only if one honest answer would fit both questions exactly as asked"),
+  same: z.boolean().describe("True if the answer a person gave to one would also answer the other"),
 });
 
 const SYSTEM = `You compare two questions from job application forms.
-Decide whether they ask the same thing, so that one honest answer fits both exactly as asked.
-Different wording is fine. Different scope is not: a different place, time, duration, company,
-number, or a broader or narrower question means they are not the same.
-When unsure, say they are not the same.`;
+Say they are the same when the answer someone gave to one would also be a true, complete answer
+to the other. Different wording, politeness or slight differences in phrasing are fine
+("When can you start?" and "What is your earliest start date?" are the same).
+They are different when they ask about a different topic, place, time, duration, company or
+number, or when one asks for something the other doesn't (an employer vs. a relative there).
+The person still confirms every match, so judge plainly.`;
 
 /**
  * Do two form questions ask the same thing? Haiku, a few tokens. Only the two question texts are

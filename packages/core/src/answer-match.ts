@@ -39,7 +39,7 @@ const SENSITIVE_FIELDS = new Set<KnownField>([
 ]);
 
 const SENSITIVE_TEXT =
-  /\b(gpa|grade point|e-?mail|phone|sponsor|visa|work authori[sz]ation|authori[sz]ed to work|citizen|immigration|export control|u\.?s\.? person|green card|gender|race|ethnicity|hispanic|latin[oa]|veteran|disabilit|sexual orientation|pronouns?)\b/i;
+  /\b(gpa|grade point|e-?mail|phone|address|zip( code)?|postal code|date of birth|birth ?date|social security|ssn|sponsor|visa|work authori[sz]ation|authori[sz]ed to work|citizen|immigration|export control|u\.?s\.? person|green card|gender|race|ethnicity|hispanic|latin[oa]|veteran|disabilit|sexual orientation|pronouns?)\b/i;
 
 /**
  * True for EEO, work authorization, GPA and contact-detail questions. You can answer them for
@@ -58,6 +58,40 @@ const ABOUT_THIS_EMPLOYER =
 
 function companyWords(company: string): string[] {
   return normalizeWords(company).filter((w) => !GENERIC_COMPANY_WORDS.has(w) && w.length > 2);
+}
+
+/** Industry words a company often drops from its own name: "Five Rings Capital" is "Five Rings". */
+const TRAILING_INDUSTRY = new Set([
+  "capital",
+  "financial",
+  "securities",
+  "partners",
+  "space",
+  "systems",
+  "technology",
+  "tech",
+  "health",
+  "robotics",
+  "ai",
+  "software",
+  "trading",
+  "investments",
+  "management",
+  "holdings",
+  "global",
+]);
+
+/**
+ * The ways a question might name the company: its full name, and its name without trailing
+ * industry words (only when what's left is distinctive: two words, or one of 4+ letters).
+ */
+function companyNames(company: string): string[][] {
+  const full = companyWords(company);
+  if (!full.length) return [];
+  const core = [...full];
+  while (core.length > 1 && TRAILING_INDUSTRY.has(core.at(-1)!)) core.pop();
+  const distinctive = core.length >= 2 || (core.length === 1 && core[0]!.length >= 4);
+  return core.length < full.length && distinctive ? [full, core] : [full];
 }
 const GENERIC_COMPANY_WORDS = new Set([
   "inc",
@@ -80,10 +114,8 @@ const GENERIC_COMPANY_WORDS = new Set([
  */
 export function isCompanySpecific(label: string, company: string): boolean {
   if (WHY_THIS_COMPANY.test(label) || ABOUT_THIS_EMPLOYER.test(label)) return true;
-  const words = companyWords(company);
-  if (!words.length) return false;
   const text = ` ${normalizeWords(label).join(" ")} `;
-  return text.includes(` ${words.join(" ")} `);
+  return companyNames(company).some((name) => text.includes(` ${name.join(" ")} `));
 }
 
 /** Lower-case words, with punctuation, "(required)" and asterisks removed. */
@@ -152,13 +184,14 @@ function canonical(word: string): string {
 
 /** The meaningful, synonym-mapped words of a question. The company's own name becomes "<co>". */
 export function questionTokens(label: string, company = ""): Set<string> {
-  const co = companyWords(company);
+  const names = companyNames(company); // longest first
   const words = normalizeWords(label);
   const out = new Set<string>();
   for (let i = 0; i < words.length; i++) {
-    if (co.length && words.slice(i, i + co.length).join(" ") === co.join(" ")) {
+    const name = names.find((n) => words.slice(i, i + n.length).join(" ") === n.join(" "));
+    if (name) {
       out.add("<co>");
-      i += co.length - 1;
+      i += name.length - 1;
       continue;
     }
     const w = words[i]!;
@@ -174,10 +207,15 @@ export function questionSimilarity(a: string, b: string, companyA = "", companyB
   const x = questionTokens(a, companyA);
   const y = questionTokens(b, companyB);
   if (x.size === 0 || y.size === 0) return 0;
+  // A question about one of these topics never matches one that isn't, however alike the rest.
+  for (const t of TOPICS) if (x.has(t) !== y.has(t)) return 0;
   let shared = 0;
   for (const t of x) if (y.has(t)) shared++;
   return (2 * shared) / (x.size + y.size);
 }
+
+/** Topics that make two questions different on their own ("ever employed here" vs "relatives employed here"). */
+const TOPICS = ["relative", "salary", "clearance", "relocate", "offer", "sponsor"];
 
 export type AnswerScope = "always" | "company" | "once";
 

@@ -69,6 +69,21 @@ describe("similarity", () => {
     expect(
       questionSimilarity("Are you willing to relocate?", "Why do you want to work here?"),
     ).toBe(0);
+    // Found live: "ever employed by X" scored 0.55 against "relatives employed at X".
+    expect(
+      questionSimilarity(
+        "Have you ever been employed by Example Co, or any of its affiliates?",
+        "Do you have any relatives or in-laws currently employed at Example Co?",
+        "Example Co",
+        "Example Co",
+      ),
+    ).toBe(0);
+    expect(
+      questionSimilarity(
+        "Do you have any outstanding offers or deadlines?",
+        "Are you holding any outstanding offers?",
+      ),
+    ).toBeGreaterThanOrEqual(SUGGEST_MATCH);
     expect(
       questionSimilarity(
         "Are you willing to relocate to Springfield?",
@@ -92,6 +107,14 @@ describe("company-specific and sensitive questions", () => {
       true,
     );
     expect(isCompanySpecific("Are you willing to relocate?", "Example Co")).toBe(false);
+    // Companies often drop an industry word from their own name.
+    expect(
+      isCompanySpecific("How did you first hear about Ring Works?", "Ring Works Capital"),
+    ).toBe(true);
+    expect(isCompanySpecific("Which team at Orbitex interests you?", "Orbitex Space")).toBe(true);
+    expect(isCompanySpecific("Do you follow the capital markets?", "Ring Works Capital")).toBe(
+      false,
+    );
     expect(defaultScope("Have you ever worked at Example Co?", "Example Co")).toBe("company");
     expect(defaultScope("Are you willing to relocate?", "Example Co")).toBe("always");
   });
@@ -105,6 +128,7 @@ describe("company-specific and sensitive questions", () => {
       "Gender",
       "Veteran status",
       "Phone number",
+      "Legal Address:",
     ])
       expect(isSensitiveQuestion(q(label))).toBe(true);
     expect(isSensitiveQuestion(q("Are you willing to relocate?"))).toBe(false);
