@@ -9,6 +9,7 @@ import { POLL_INTERVAL_MS } from "@ia/sources";
 import { buildServer } from "./api.ts";
 import { registerCommand } from "./cli.ts";
 import { DEFAULT_PORT, HOST } from "./config.ts";
+import { describeSync, syncContactDetails } from "./contact.ts";
 import type { AppContext } from "./context.ts";
 import { runEnrichment, runScoring, runSourcing } from "./pipeline.ts";
 import { makeLivenessCheck } from "./liveness.ts";
@@ -105,7 +106,11 @@ registerCommand("serve", async (ctx, args) => {
     },
     coverBase: ctx.coverBase,
     liveness: values["no-open-check"] ? null : makeLivenessCheck(fetch),
+    profilePath: ctx.paths.profile,
   });
+  // Contact details changed in profile.yaml since prep? Bring every unsubmitted application up to date.
+  const synced = describeSync(await syncContactDetails(ctx.store, ctx.profile, ctx.paths.out));
+  if (synced) console.log(synced);
   await app.listen({ host: HOST, port });
   console.log(
     `Review UI: http://${HOST}:${port}/${uiDir ? "" : "  (UI not built: run npm run build)"}`,

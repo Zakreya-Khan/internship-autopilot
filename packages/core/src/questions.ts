@@ -38,6 +38,30 @@ export const KNOWN_FIELDS = [
 ] as const;
 export type KnownField = (typeof KNOWN_FIELDS)[number];
 
+/**
+ * Who you are and how to reach you. A fill plan holds a copy made at prep time, so these are
+ * re-read from the current profile before every fill: change your email and every application
+ * not yet submitted uses the new one.
+ */
+export const CONTACT_FIELDS: ReadonlySet<KnownField> = new Set<KnownField>([
+  "first_name",
+  "last_name",
+  "full_name",
+  "preferred_name",
+  "email",
+  "phone",
+  "city",
+  "linkedin",
+  "github",
+  "website",
+]);
+
+/** The contact field a question asks for, or null when it asks for something else. */
+export function contactFieldOf(q: Pick<FormQuestion, "key" | "label" | "type">): KnownField | null {
+  const cls = classifyQuestion(q);
+  return cls.kind === "known" && CONTACT_FIELDS.has(cls.field) ? cls.field : null;
+}
+
 export type QuestionClass =
   | { kind: "known"; field: KnownField }
   /** Open-ended: drafted from the answer bank and facts, with citations. */

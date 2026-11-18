@@ -104,6 +104,8 @@ Models: `claude-opus-5-5` drafts (effort `medium` for Tier B, `high` for Tier A)
 
 Typed answers are yours and are used word for word. They're never truth-checked or rewritten, and never override the truth check on drafted text. Work authorization, EEO, GPA, address and contact questions can be answered for an application, but are never saved to the bank: those live in `profile.yaml`. Submitted applications are never changed. The bank stays in `data/`.
 
+**Changing your contact details.** Your name, email, phone, city and links always come from `profile.yaml` as it is now, not as it was when an application was prepared. When you edit them, every application you haven't submitted is updated: its form fields and its resume header (re-rendered with no model calls). This happens when `serve` starts, when the running server sees `profile.yaml` change, and again just before the fill session hands an application to the extension. Approved applications stay approved. The one exception is a required contact value you removed: that application goes back to review. A value you typed yourself on an application is kept.
+
 ## Reaching Claude: API key or Claude CLI
 
 Pick one in the review UI under **Settings**, or per command with `--provider api|cli`. The choice is saved in your local database under `data/`.

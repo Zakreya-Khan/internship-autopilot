@@ -827,6 +827,31 @@ export class Store {
     if (answerId) this.touchLearned(answerId);
   }
 
+  /**
+   * A value copied from the profile, re-read from the current profile. Only rows still sourced
+   * from the profile change: a value you typed is never touched.
+   */
+  setProfileValue(
+    applicationId: number,
+    fieldKey: string,
+    value: string | null,
+    flag: Flag,
+    note: string | null,
+  ): void {
+    this.db
+      .prepare(
+        "UPDATE field_fills SET planned_value = ?, flag = ?, note = ?, updated_at = ? WHERE application_id = ? AND field_key = ? AND source = 'profile'",
+      )
+      .run(value, flag, note, this.now(), applicationId, fieldKey);
+  }
+
+  /** Replace a resume variant's saved plan and parse check (after its header is re-rendered). */
+  updateResumeVariant(id: number, plan: unknown, parseCheck: unknown): void {
+    this.db
+      .prepare("UPDATE resume_variants SET plan = ?, parse_check = ? WHERE id = ?")
+      .run(json(plan), json(parseCheck), id);
+  }
+
   /** Offer a learned answer to a similar question on a field, for you to confirm. */
   setSuggestion(applicationId: number, fieldKey: string, s: AnswerSuggestion | null): void {
     this.db

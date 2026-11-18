@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import fastifyStatic from "@fastify/static";
 import type {
@@ -15,6 +15,7 @@ import { mapFieldsWithModel, testConnection } from "@ia/ai";
 import {
   hasBlockingFlags,
   isSubmittedOrLater,
+  loadProfile,
   mapPageFieldsByRules,
   outcomeReport,
   STATUSES,
@@ -33,6 +34,7 @@ import {
   settleSuggestion,
 } from "./answers.ts";
 import type { Paths } from "./config.ts";
+import { describeSync, syncContactDetails } from "./contact.ts";
 import type { ApplicationRow, FieldFillRow, Store } from "./db.ts";
 import {
   buildLlm,
@@ -71,6 +73,11 @@ export interface ServerDeps {
   /** Rechecks that an approved posting is still open before the session opens it. */
   liveness?: LivenessCheck | null;
   logger?: boolean;
+  /**
+   * profile.yaml. When set, an edit to it takes effect without a restart: contact details on
+   * every application not yet submitted are brought up to date.
+   */
+  profilePath?: string;
 }
 
 class HttpProblem extends Error {
@@ -120,8 +127,37 @@ function fileName(name: string, kind: "resume" | "cover_letter"): string {
 }
 
 export function buildServer(deps: ServerDeps): FastifyInstance {
-  const { store, profile } = deps;
+  const { store } = deps;
+  let profile = deps.profile;
   let llm = deps.llm ?? null;
+
+  // The profile as it is now on disk. An edit that doesn't parse keeps the last good copy.
+  const mtime = (): number | null => {
+    try {
+      return deps.profilePath ? statSync(deps.profilePath).mtimeMs : null;
+    } catch {
+      return null;
+    }
+  };
+  let profileSeen = mtime();
+  const currentProfile = async (): Promise<Profile> => {
+    const m = mtime();
+    if (m === null || m === profileSeen) return profile;
+    profileSeen = m;
+    try {
+      profile = loadProfile(deps.profilePath!);
+    } catch {
+      console.warn("profile.yaml changed but didn't load; still using the earlier version.");
+      return profile;
+    }
+    const line = describeSync(await syncContactDetails(store, profile, deps.outDir));
+    if (line) console.log(line);
+    return profile;
+  };
+  // Contact fields and resume headers for these applications, from the current profile.
+  const freshContacts = async (ids: number[]): Promise<void> => {
+    await syncContactDetails(store, await currentProfile(), deps.outDir, ids);
+  };
   const app = Fastify({ logger: deps.logger ?? false, bodyLimit: 8 * 1024 * 1024 });
 
   app.addHook("onRequest", async (req: FastifyRequest, reply: FastifyReply) => {
@@ -202,6 +238,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
 
   app.get<{ Params: { id: string } }>("/api/applications/:id", async (req) => {
+    await freshContacts([mustApp(req.params.id).id]);
     const a = mustApp(req.params.id);
     const p = postingOf(a);
     const variant = a.resume_variant_id ? store.getResumeVariant(a.resume_variant_id) : null;
@@ -331,6 +368,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   // ---------- submit session (called by the extension) ----------
   app.post<{ Body: { skip?: number[] } }>("/api/session/next", async (req) => {
     const skip = new Set(req.body?.skip ?? []);
+    // What gets typed comes from your profile as it is now, not as it was at prep.
+    await freshContacts(store.listApplications({ status: ["approved"] }).map((a) => a.id));
     const approved = store
       .listApplications({ status: ["approved"] })
       .filter((a) => !skip.has(a.id))
@@ -662,6 +701,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       const a = mustApp(req.params.id);
       if (!["approved", "filled"].includes(a.status))
         throw new HttpProblem(409, `application is ${a.status}`);
+      await freshContacts([a.id]);
       const page = (req.body?.fields ?? []).slice(0, 200);
       const plan = store.listFieldFills(a.id).map((f) => ({
         key: f.field_key,
@@ -755,7 +795,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.get<{ Querystring: { verdict?: string; tier?: string } }>("/api/qualify", async (req) => {
     const verdict = req.query.verdict === "close" ? "close" : "meets";
     const tier = req.query.tier as "A" | "B" | "C" | undefined;
-    return qualifyCandidates(store, deps.profile, { verdict, ...(tier ? { tier } : {}) });
+    return qualifyCandidates(store, await currentProfile(), { verdict, ...(tier ? { tier } : {}) });
   });
 
   // ---------- review UI ----------
