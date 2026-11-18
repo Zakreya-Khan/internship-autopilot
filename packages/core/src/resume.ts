@@ -110,6 +110,32 @@ export function buildBaseResume(
   };
 }
 
+/**
+ * Your base resume, word for word, with only the order of bullets inside each entry and the
+ * order of your skills taken from the plan. Used when style.resume_wording is "original".
+ */
+export function orderBaseResume(profile: Profile, plan: ResumePlan): ResumeDoc {
+  const base = buildBaseResume(profile);
+  const rank = new Map<string, number>();
+  for (const e of plan.entries)
+    for (const b of e.bullets)
+      for (const id of b.factIds) if (!rank.has(id)) rank.set(id, rank.size);
+  const byRank = <T>(items: T[], key: (t: T) => number | undefined): T[] =>
+    items
+      .map((t, i) => ({ t, i, r: key(t) ?? Number.MAX_SAFE_INTEGER }))
+      .sort((a, b) => a.r - b.r || a.i - b.i)
+      .map((x) => x.t);
+  const order = (entries: ResumeDoc["experience"]) =>
+    entries.map((e) => ({ ...e, bullets: byRank(e.bullets, (b) => rank.get(b.factIds[0] ?? "")) }));
+  const skillRank = new Map(plan.skillsOrder.map((s, i) => [s.toLowerCase(), i]));
+  return {
+    ...base,
+    experience: order(base.experience),
+    projects: order(base.projects),
+    skills: byRank(base.skills, (s) => skillRank.get(s.toLowerCase())),
+  };
+}
+
 export interface PlanProblem {
   where: string;
   problem: string;

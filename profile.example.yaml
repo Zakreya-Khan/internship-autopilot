@@ -81,6 +81,15 @@ style:
   # contractions, how often you say "I") shape cover letters and short answers; the text itself
   # is never sent to the model or copied into an application. Resume bullets ignore this.
   writing_samples: [] # e.g. ["data/writing-samples"]
+  # "tailored" rewords resume bullets to match each posting. "original" keeps every bullet word for
+  # word and only reorders bullets within each entry, and your skills, for the posting.
+  resume_wording: tailored
+  # Optional: your own cover letter (.txt or .md), relative to this file. Keep it under data/.
+  # Every cover letter is then this letter word for word, plus one short paragraph (2 or 3
+  # sentences) written for the posting and placed before your closing paragraph. If that
+  # paragraph fails the truth or writing check it's left out and your letter goes as written.
+  # The letter's body (without contact details or sign-off) is sent to the model as context.
+  cover_letter_base: null # e.g. "data/cover-letter.txt"
 
 # What to look for. Hard filters drop postings; the rest feeds the fit score.
 preferences:

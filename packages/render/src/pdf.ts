@@ -94,14 +94,19 @@ export async function renderCoverLetterPdf(
   name: string,
   company: string,
   paragraphs: string[],
+  /** Your own letter's greeting and closing, when it has them. */
+  opts: { greeting?: string | null; closing?: string | null } = {},
 ): Promise<Buffer> {
   const doc = newDoc(`${name} - Cover letter - ${company}`);
   const done = collect(doc);
   doc.font("Helvetica-Bold").fontSize(14).text(name);
   doc.moveDown(1).font("Helvetica").fontSize(11);
-  doc.text(`Dear ${company} hiring team,`).moveDown(0.8);
+  doc.text(opts.greeting ?? `Dear ${company} hiring team,`).moveDown(0.8);
   for (const p of paragraphs) doc.text(p, { align: "left", paragraphGap: 8 });
-  doc.moveDown(0.5).text("Sincerely,").text(name);
+  doc
+    .moveDown(0.5)
+    .text(opts.closing ?? "Sincerely,")
+    .text(name);
   doc.end();
   return done;
 }

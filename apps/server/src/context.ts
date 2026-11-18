@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { loadProfile, voiceFromSamples } from "@ia/core";
-import type { Profile, VoiceTraits } from "@ia/core";
+import { loadProfile, readCoverLetterBase, voiceFromSamples } from "@ia/core";
+import type { CoverLetterBase, Profile, VoiceTraits } from "@ia/core";
 import { AnthropicLlm, hasAnthropicCredentials } from "@ia/ai";
 import type { LlmClient } from "@ia/ai";
 import type { Paths } from "./config.ts";
@@ -16,6 +16,8 @@ export interface AppContext {
   token: string;
   /** Measured from style.writing_samples, if any. Numbers only. */
   voice: VoiceTraits | null;
+  /** Your own cover letter, from style.cover_letter_base, if set. */
+  coverBase: CoverLetterBase | null;
 }
 
 /** The token the extension and UI must send. Created once per install, stored in the DB. */
@@ -42,5 +44,6 @@ export function openContext(opts: { offline?: boolean; env?: NodeJS.ProcessEnv }
       )
     : null;
   const voice = voiceFromSamples(profile.style.writing_samples, paths.profile);
-  return { paths, store, profile, llm, token: ensureToken(store), voice };
+  const coverBase = readCoverLetterBase(profile.style.cover_letter_base, paths.profile);
+  return { paths, store, profile, llm, token: ensureToken(store), voice, coverBase };
 }

@@ -2,7 +2,14 @@ import { timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import fastifyStatic from "@fastify/static";
-import type { ApplicationStatus, OutcomeRow, PageField, Posting, Profile } from "@ia/core";
+import type {
+  ApplicationStatus,
+  CoverLetterBase,
+  OutcomeRow,
+  PageField,
+  Posting,
+  Profile,
+} from "@ia/core";
 import type { LlmClient } from "@ia/ai";
 import { mapFieldsWithModel } from "@ia/ai";
 import {
@@ -34,6 +41,8 @@ export interface ServerDeps {
   allowedHosts: string[];
   /** Only used to match fields on pages no adapter knows. Null: rules only. */
   llm?: LlmClient | null;
+  /** Your own cover letter's greeting and closing, reused when you edit a letter. */
+  coverBase?: CoverLetterBase | null;
   /** Rechecks that an approved posting is still open before the session opens it. */
   liveness?: LivenessCheck | null;
   logger?: boolean;
@@ -249,6 +258,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
         profile.identity.name,
         p.company,
         text.split(/\n{2,}/),
+        { greeting: deps.coverBase?.greeting ?? null, closing: deps.coverBase?.closing ?? null },
       );
       writeFileSync(resumePathFor(deps.outDir, a.id, "cover_letter"), pdf);
     }

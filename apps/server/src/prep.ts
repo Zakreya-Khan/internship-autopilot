@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
   ClaimToCheck,
+  CoverLetterBase,
   DraftedAnswer,
   FormQuestion,
   Posting,
@@ -12,7 +13,9 @@ import type {
   WritingIssue,
 } from "@ia/core";
 import {
+  ADDED_PARAGRAPH_HARD_CAP,
   applyResumePlan,
+  assembleCoverLetter,
   buildBaseResume,
   buildFillPlan,
   checkClaims,
@@ -22,10 +25,12 @@ import {
   hasBlockingFlags,
   indexFacts,
   normalizeCompany,
+  orderBaseResume,
   profileOwnWords,
   questionKey,
   STANDARD_QUESTIONS,
   voiceNotes,
+  wordCount,
 } from "@ia/core";
 import type { Draft, DraftRequest } from "@ia/ai";
 import { draftApplication, modelTruthCheck } from "@ia/ai";
@@ -41,6 +46,8 @@ export interface PrepDeps extends PipelineDeps {
   liveness?: LivenessCheck | null;
   /** Numbers measured from your writing samples (profile style.writing_samples). */
   voice?: VoiceTraits | null;
+  /** Your own cover letter (style.cover_letter_base), used word for word plus one paragraph. */
+  coverBase?: CoverLetterBase | null;
   /** Drafting model for Tier B, if the user opted into Sonnet. Tier A always uses Opus. */
   tierBModel?: DraftRequest["model"];
 }
@@ -85,14 +92,27 @@ export function draftRequest(deps: PrepDeps, i: PrepInputs): DraftRequest {
     openQuestions: i.openToDraft,
     coverLetter: i.coverLetter,
     voice: deps.voice ?? null,
+    coverBase: deps.coverBase ?? null,
     ...(i.tier === "B" && deps.tierBModel ? { model: deps.tierBModel } : {}),
   };
 }
 
+const keepsOwnBullets = (deps: Pick<PrepDeps, "profile">) =>
+  deps.profile.style.resume_wording === "original";
+
+/** Text the writing check treats as yours: your facts, entry names and your own letter. */
+function ownWords(deps: PrepDeps): string {
+  const base = deps.coverBase ? `\n${deps.coverBase.paragraphs.join("\n")}` : "";
+  return profileOwnWords(deps.profile) + base;
+}
+
 /** Every generated text in a draft, labelled the same way the truth check labels it. */
-export function draftTexts(draft: Draft): { where: string; text: string }[] {
+export function draftTexts(
+  draft: Draft,
+  opts: { ownBullets?: boolean } = {},
+): { where: string; text: string }[] {
   return [
-    ...draft.resumePlan.entries.flatMap((e) =>
+    ...(opts.ownBullets ? [] : draft.resumePlan.entries).flatMap((e) =>
       e.bullets.map((b, n) => ({ where: `bullet:${e.entryId}:${n}`, text: b.text })),
     ),
     ...draft.answers.map((a) => ({ where: `answer:${a.questionKey}`, text: a.text })),
@@ -101,7 +121,7 @@ export function draftTexts(draft: Draft): { where: string; text: string }[] {
 }
 
 export function writingIssuesFor(deps: PrepDeps, draft: Draft): WritingIssue[] {
-  return checkWriting(draftTexts(draft), profileOwnWords(deps.profile));
+  return checkWriting(draftTexts(draft, { ownBullets: keepsOwnBullets(deps) }), ownWords(deps));
 }
 
 /** No model available: the base resume, untouched, and every open question left for you. */
@@ -154,12 +174,25 @@ export async function completePrep(
 ): Promise<PrepOutcome> {
   const { store, profile } = deps;
   const context = `${i.posting.company}\n${i.posting.title}\n${i.posting.descriptionText ?? ""}`;
-  const applied = applyResumePlan(profile, draft.resumePlan);
+  const ownBullets = keepsOwnBullets(deps);
+  const applied = ownBullets
+    ? { doc: orderBaseResume(profile, draft.resumePlan), problems: [] }
+    : applyResumePlan(profile, draft.resumePlan);
   let doc = applied.doc;
   if (doc.experience.length + doc.projects.length === 0) doc = buildBaseResume(profile);
+  // With your own letter, the model's only text is one added paragraph.
+  const base = i.coverLetter ? (deps.coverBase ?? null) : null;
+  const added =
+    base && draft.coverLetter?.length
+      ? {
+          text: draft.coverLetter.map((p) => p.text.trim()).join(" "),
+          factIds: [...new Set(draft.coverLetter.flatMap((p) => p.factIds))],
+        }
+      : null;
 
   const claims: ClaimToCheck[] = [
-    ...[...doc.experience, ...doc.projects].flatMap((e) =>
+    // Bullets in your own words need no check: they are your facts, verbatim.
+    ...(ownBullets ? [] : [...doc.experience, ...doc.projects]).flatMap((e) =>
       e.bullets.map((b, n) => ({
         where: `bullet:${e.id}:${n}`,
         text: b.text,
@@ -174,23 +207,40 @@ export async function completePrep(
       mustCite: false,
       context,
     })),
-    ...(draft.coverLetter ?? []).map((p, n) => ({
-      where: `cover:${n}`,
-      text: p.text,
-      factIds: p.factIds,
-      mustCite: false,
-      context,
-    })),
+    ...(base
+      ? added
+        ? [
+            {
+              where: "cover:add",
+              text: added.text,
+              factIds: added.factIds,
+              mustCite: false,
+              context,
+            },
+          ]
+        : []
+      : (draft.coverLetter ?? []).map((p, n) => ({
+          where: `cover:${n}`,
+          text: p.text,
+          factIds: p.factIds,
+          mustCite: false,
+          context,
+        }))),
   ];
   const issues = checkClaims(profile, claims);
+  if (added && wordCount(added.text) > ADDED_PARAGRAPH_HARD_CAP)
+    issues.push({
+      where: "cover:add",
+      problem: `the added paragraph is ${wordCount(added.text)} words; the limit is ${ADDED_PARAGRAPH_HARD_CAP}`,
+      severity: "block",
+    });
   // Writing rules, on the same texts the truth check sees. A bullet that breaks one goes back
   // to your own wording; an answer or cover letter that breaks one is flagged for you.
-  for (const w of checkWriting(claims, profileOwnWords(profile)))
+  for (const w of checkWriting(claims, ownWords(deps)))
     issues.push({ where: w.where, problem: w.problem, severity: "block" });
-  for (const note of voiceNotes(
-    deps.voice ?? null,
-    (draft.coverLetter ?? []).map((p) => p.text).join("\n\n"),
-  ))
+  for (const note of base
+    ? []
+    : voiceNotes(deps.voice ?? null, (draft.coverLetter ?? []).map((p) => p.text).join("\n\n")))
     issues.push({ where: "cover:0", problem: note, severity: "warn" });
   if (deps.llm) {
     try {
@@ -211,6 +261,27 @@ export async function completePrep(
   const blocked = new Set(issues.filter((x) => x.severity === "block").map((x) => x.where));
   doc = revertBlockedBullets(doc, blocked, deps);
 
+  // Your letter never waits on the model: a paragraph that fails a check is left out, and the
+  // letter goes as you wrote it.
+  const addedOk = Boolean(added) && !blocked.has("cover:add");
+  if (added && !addedOk)
+    for (const x of issues)
+      if (x.where === "cover:add" && x.severity === "block") {
+        x.severity = "warn";
+        x.problem = `added paragraph left out: ${x.problem}`;
+      }
+  const letter: { paragraphs: string[]; factIds: string[] } | null = base
+    ? {
+        paragraphs: assembleCoverLetter(base, addedOk ? added!.text : null),
+        factIds: addedOk ? added!.factIds : [],
+      }
+    : draft.coverLetter?.length
+      ? {
+          paragraphs: draft.coverLetter.map((p) => p.text),
+          factIds: [...new Set(draft.coverLetter.flatMap((p) => p.factIds))],
+        }
+      : null;
+
   const dir = join(deps.outDir, String(i.app.id));
   mkdirSync(dir, { recursive: true });
   const pdf = await renderResumePdf(doc);
@@ -218,15 +289,14 @@ export async function completePrep(
   writeFileSync(resumePath, pdf);
   const parse = await parseCheckResume(pdf, doc);
 
-  const coverFlagged = (draft.coverLetter ?? []).some((_, n) => blocked.has(`cover:${n}`));
-  if (draft.coverLetter?.length) {
+  const coverFlagged = !base && (draft.coverLetter ?? []).some((_, n) => blocked.has(`cover:${n}`));
+  if (letter) {
     writeFileSync(
       join(dir, "cover_letter.pdf"),
-      await renderCoverLetterPdf(
-        profile.identity.name,
-        i.posting.company,
-        draft.coverLetter.map((p) => p.text),
-      ),
+      await renderCoverLetterPdf(profile.identity.name, i.posting.company, letter.paragraphs, {
+        greeting: base?.greeting ?? null,
+        closing: base?.closing ?? null,
+      }),
     );
   }
 
@@ -259,13 +329,13 @@ export async function completePrep(
       ],
     };
   });
-  if (draft.coverLetter?.length) {
+  if (letter) {
     rows.push({
       kind: "cover_letter",
       question_key: null,
       question_text: null,
-      text: draft.coverLetter.map((p) => p.text).join("\n\n"),
-      cited_fact_ids: [...new Set(draft.coverLetter.flatMap((p) => p.factIds))],
+      text: letter.paragraphs.join("\n\n"),
+      cited_fact_ids: letter.factIds,
       checker_status: coverFlagged ? "flagged" : "pass",
       checker_notes: issues.filter((x) => x.where.startsWith("cover:")).map((x) => x.problem),
     });
@@ -273,7 +343,7 @@ export async function completePrep(
   store.replaceDrafts(i.app.id, rows);
 
   const plan = buildFillPlan(i.questions, profile, drafted, store.learnedAnswers(), {
-    coverLetter: Boolean(draft.coverLetter?.length) && !coverFlagged,
+    coverLetter: Boolean(letter) && !coverFlagged,
   });
   store.replaceFieldFills(i.app.id, plan);
   store.logEvent(i.app.id, "prepared", { issues: issues.length, parseOk: parse.ok });

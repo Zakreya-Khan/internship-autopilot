@@ -19,3 +19,4 @@ export * from "./types.ts";
 export * from "./writing.ts";
 export * from "./voice.ts";
 export * from "./stories.ts";
+export * from "./cover-base.ts";

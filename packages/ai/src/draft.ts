@@ -1,5 +1,18 @@
-import type { FormQuestion, Posting, Profile, ResumePlan, Tier, VoiceTraits } from "@ia/core";
-import { voicePrompt, writingRulesPrompt } from "@ia/core";
+import type {
+  CoverLetterBase,
+  FormQuestion,
+  Posting,
+  Profile,
+  ResumePlan,
+  Tier,
+  VoiceTraits,
+} from "@ia/core";
+import {
+  ADDED_PARAGRAPH_WORDS,
+  coverLetterBaseForModel,
+  voicePrompt,
+  writingRulesPrompt,
+} from "@ia/core";
 import { z } from "zod";
 import type { Effort, LlmClient, LlmRequest, ModelId } from "./client.ts";
 import { MODELS } from "./client.ts";
@@ -55,6 +68,8 @@ export interface DraftRequest {
   voice?: VoiceTraits | null;
   /** Writing-rule problems in the previous draft, for a redraft. */
   revisionNotes?: string[];
+  /** Your own cover letter (style.cover_letter_base): the model adds one paragraph to it. */
+  coverBase?: CoverLetterBase | null;
 }
 
 export interface Draft {
@@ -65,11 +80,16 @@ export interface Draft {
 }
 
 /** Frozen per profile, so it is cached across every posting drafted with it. */
-export function draftSystemPrompt(profile: Profile, voice: VoiceTraits | null = null): string {
+export function draftSystemPrompt(
+  profile: Profile,
+  voice: VoiceTraits | null = null,
+  coverBase: CoverLetterBase | null = null,
+): string {
   const entries = [...profile.experience, ...profile.projects]
     .map((e) => `- ${e.id}: facts ${e.facts.map((f) => f.id).join(", ")}`)
     .join("\n");
   const [minW, maxW] = profile.style.cover_letter_words;
+  const original = profile.style.resume_wording === "original";
   return `You prepare internship application materials from a candidate's verified facts.
 
 Rules, in order of importance:
@@ -77,12 +97,25 @@ Rules, in order of importance:
    No new skills, tools, employers, titles, dates, numbers, results or awards.
 2. Numbers may appear only if copied exactly from a fact's "verified number".
 3. Never describe a skill above its listed level. "coursework" and "familiar" skills are never "proficient" or "expert".
-4. You may choose, reorder, shorten and reword facts to match the posting's language, and drop weak ones.
-5. A resume bullet may cite only facts from its own entry. Keep the resume to what fits one page: at most 4 bullets per entry.
+${
+  original
+    ? `4. Resume: the candidate keeps their own wording. Never reword, shorten or merge a bullet.
+   For each entry, list its bullets most relevant to this posting first. Each bullet cites exactly one fact and its text is that fact's text, copied exactly.
+5. A resume bullet may cite only facts from its own entry.`
+    : `4. You may choose, reorder, shorten and reword facts to match the posting's language, and drop weak ones.
+5. A resume bullet may cite only facts from its own entry. Keep the resume to what fits one page: at most 4 bullets per entry.`
+}
 6. Answers: specific and plain. A line about why the company appeals may cite no fact if it only restates the posting.
    If a question can't be answered truthfully from the facts, answer with an empty string; the candidate will write it.
 7. Respect each question's character limit.
-8. Cover letter, when asked: ${minW} to ${maxW} words, 3 or 4 paragraphs, no greeting or sign-off lines.
+${
+  coverBase
+    ? `8. Cover letter, when asked: the candidate wrote their own letter (below) and it is sent word for word. Don't rewrite or repeat it.
+   Write exactly one short paragraph to add to it for this posting: 2 or 3 sentences, at most ${ADDED_PARAGRAPH_WORDS} words.
+   Name the company and the role, and connect one or two of the candidate's facts to something specific the posting asks for.
+   Match the letter's voice. It goes before the letter's last paragraph. Return it as the only item in cover_letter.`
+    : `8. Cover letter, when asked: ${minW} to ${maxW} words, 3 or 4 paragraphs, no greeting or sign-off lines.`
+}
 Voice: ${profile.style.voice}.
 
 ${writingRulesPrompt()}
@@ -91,7 +124,16 @@ ${voicePrompt(voice)}
 
 Entries and their fact ids:
 ${entries}
-
+${
+  coverBase
+    ? `
+The candidate's own cover letter, sent as written:
+<letter>
+${coverLetterBaseForModel(coverBase)}
+</letter>
+`
+    : ""
+}
 ${profileForModel(profile)}`;
 }
 
@@ -136,7 +178,7 @@ export function draftLlmRequest(req: DraftRequest): LlmRequest<DraftOutput> {
     model: req.model ?? MODELS.opus,
     effort: effortFor(req.tier),
     maxTokens: 16000,
-    system: draftSystemPrompt(req.profile, req.voice ?? null),
+    system: draftSystemPrompt(req.profile, req.voice ?? null, req.coverBase ?? null),
     user: draftUserPrompt(req),
     schema: DraftSchema,
   };

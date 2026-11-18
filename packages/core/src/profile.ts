@@ -127,11 +127,23 @@ export const ProfileSchema = z.object({
        * measured from them (sentence length, contractions...) reach the model; never the text.
        */
       writing_samples: z.array(z.string()).default([]),
+      /**
+       * "original": the resume keeps your bullets word for word; only their order within each
+       * entry and the order of your skills change per posting. "tailored": bullets are reworded.
+       */
+      resume_wording: z.enum(["original", "tailored"]).default("tailored"),
+      /**
+       * Your own cover letter (.txt or .md, relative to profile.yaml). When set, every cover
+       * letter is this letter word for word plus one short paragraph written for the posting.
+       */
+      cover_letter_base: z.string().nullable().default(null),
     })
     .default({
       voice: "plain, specific, no buzzwords",
       cover_letter_words: [250, 350],
       writing_samples: [],
+      resume_wording: "tailored",
+      cover_letter_base: null,
     }),
   preferences: z
     .object({

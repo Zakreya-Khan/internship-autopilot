@@ -82,6 +82,7 @@ registerCommand("serve", async (ctx, args) => {
     uiDir,
     allowedHosts: [`${HOST}:${port}`, `localhost:${port}`],
     llm: ctx.llm,
+    coverBase: ctx.coverBase,
     liveness: values["no-open-check"] ? null : makeLivenessCheck(fetch),
   });
   await app.listen({ host: HOST, port });
