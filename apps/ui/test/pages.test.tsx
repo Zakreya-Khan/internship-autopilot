@@ -52,6 +52,7 @@ const summary = (over: Partial<Summary> = {}): Summary => ({
   dueSoon: 0,
   questions: 0,
   jobs: [],
+  autorun: true,
   ...over,
 });
 
@@ -276,5 +277,50 @@ describe("Open & fill", () => {
     expect(tab.close).toHaveBeenCalled();
     expect(screen.getByRole("alert").textContent).toMatch(/Approve it first/);
     open.mockRestore();
+  });
+});
+
+describe("auto-run from the review UI", () => {
+  it("asks the extension to start on load and when more get approved, only with auto-run on", async () => {
+    const { useExtension } = await import("../src/components/Extension.tsx");
+    const asked: string[] = [];
+    const post = vi.spyOn(window, "postMessage").mockImplementation((msg: unknown) => {
+      asked.push((msg as { type: string }).type);
+    });
+    document.documentElement.dataset.iaExtension = "1";
+    function Probe({ s }: { s: Summary }) {
+      useExtension(s);
+      return null;
+    }
+    const { rerender } = render(<Probe s={summary({ approved: 2 })} />);
+    expect(asked.filter((x) => x === "autorun")).toHaveLength(1);
+    rerender(<Probe s={summary({ approved: 2 })} />);
+    rerender(<Probe s={summary({ approved: 1 })} />); // one was submitted: no new start
+    expect(asked.filter((x) => x === "autorun")).toHaveLength(1);
+    rerender(<Probe s={summary({ approved: 3 })} />); // you approved more
+    expect(asked.filter((x) => x === "autorun")).toHaveLength(2);
+    rerender(<Probe s={summary({ approved: 5, autorun: false })} />);
+    expect(asked.filter((x) => x === "autorun")).toHaveLength(2);
+    rerender(<Probe s={summary({ approved: 5, autorun: true })} />); // turned back on
+    expect(asked.filter((x) => x === "autorun")).toHaveLength(3);
+    post.mockRestore();
+    delete document.documentElement.dataset.iaExtension;
+  });
+
+  it("never asks when nothing is approved", async () => {
+    const { useExtension } = await import("../src/components/Extension.tsx");
+    const asked: string[] = [];
+    const post = vi.spyOn(window, "postMessage").mockImplementation((msg: unknown) => {
+      asked.push((msg as { type: string }).type);
+    });
+    document.documentElement.dataset.iaExtension = "1";
+    function Probe() {
+      useExtension(summary({ approved: 0 }));
+      return null;
+    }
+    render(<Probe />);
+    expect(asked).not.toContain("autorun");
+    post.mockRestore();
+    delete document.documentElement.dataset.iaExtension;
   });
 });

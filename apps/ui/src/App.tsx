@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Summary } from "./api.ts";
 import { api } from "./api.ts";
+import { ExtensionChip, useExtension } from "./components/Extension.tsx";
 import { Answers } from "./pages/Answers.tsx";
 import { DetailPage } from "./pages/DetailPage.tsx";
 import { Discover } from "./pages/Discover.tsx";
@@ -92,6 +93,7 @@ export function App() {
     return () => window.removeEventListener("hashchange", on);
   }, []);
   const s = useSummary();
+  const ext = useExtension(s);
   const here = (page: Route["page"]) => (route.page === page ? "page" : undefined);
   const job = s?.jobs[0];
   return (
@@ -138,6 +140,7 @@ export function App() {
             Settings
           </a>
         </span>
+        <ExtensionChip present={ext.present} status={ext.status} autorun={s?.autorun ?? false} />
         {job ? (
           <a href="#/tools" className="nav-job" role="status">
             {job.label}

@@ -1,7 +1,7 @@
 import { loadConfig, makeApi } from "./api.ts";
 import type { StateBroadcast, ToBackground } from "./messages.ts";
 import type { SessionApplication, SessionState } from "./session.ts";
-import { SessionController } from "./session.ts";
+import { isSupportedUrl, SessionController } from "./session.ts";
 
 const controller = new SessionController({
   api: makeApi(loadConfig),
@@ -46,6 +46,9 @@ chrome.runtime.onMessage.addListener((msg: ToBackground, sender, reply) => {
     switch (msg.type) {
       case "session:start":
         await controller.start();
+        break;
+      case "session:auto":
+        await controller.autoStart();
         break;
       case "session:skip":
         await controller.skip();
@@ -93,4 +96,24 @@ chrome.runtime.onMessage.addListener((msg: ToBackground, sender, reply) => {
 
 chrome.action.onClicked.addListener((tab) => {
   if (tab.windowId !== undefined) void chrome.sidePanel.open({ windowId: tab.windowId });
+});
+
+// The run's tab moved to another page on a site the extension doesn't fill by itself (the form is
+// one page past the posting). If you already allowed that site, load the filler there again.
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  if (info.status !== "complete" || tabId !== controller.get().tabId || !tab.url) return;
+  if (isSupportedUrl(tab.url) || !/^https:/.test(tab.url)) return;
+  void chrome.permissions
+    .contains({ origins: [`${new URL(tab.url).origin}/*`] })
+    .then((allowed) =>
+      allowed
+        ? chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            files: ["content.js"],
+          })
+        : undefined,
+    )
+    .catch(() => {
+      /* the tab closed */
+    });
 });

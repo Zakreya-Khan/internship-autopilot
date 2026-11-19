@@ -264,6 +264,28 @@ describe("API: jobs, search and Open & fill", () => {
     await app.close();
   });
 
+  it("keeps the auto-run setting, on by default, and only the review UI may change it", async () => {
+    const { call, app } = await setup();
+    expect((await call("GET", "/api/settings/autorun")).json()).toEqual({ on: true });
+    expect((await call("GET", "/api/summary")).json().autorun).toBe(true);
+    const off = await app.inject({
+      method: "PUT",
+      url: "/api/settings/autorun",
+      payload: { on: false },
+      headers: { host: HOST, "x-ia-token": "t" },
+    });
+    expect(off.json()).toEqual({ on: false });
+    const ext = await app.inject({
+      method: "PUT",
+      url: "/api/settings/autorun",
+      payload: { on: true },
+      headers: { host: HOST, "x-ia-token": "t", origin: "chrome-extension://abc" },
+    });
+    expect(ext.statusCode).toBe(403);
+    expect((await call("GET", "/api/settings/autorun")).json()).toEqual({ on: false });
+    await app.close();
+  });
+
   it("summarizes what to do next", async () => {
     const { call, store, app } = await setup();
     const p = makePosting({ id: "p1" });

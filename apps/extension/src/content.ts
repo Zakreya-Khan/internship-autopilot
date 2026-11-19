@@ -3,6 +3,7 @@ import {
   base64ToFile,
   extractPageFields,
   fillForm,
+  findApplyLink,
   highlightSubmit,
   pickAdapter,
   runWizard,
@@ -33,6 +34,25 @@ function watchForConfirmation(adapter: Adapter): void {
   check();
 }
 
+const FIRST_LOOK_MS = 3000;
+/** At most this many "Apply" links per application, so two pages can't send the tab in circles. */
+const MAX_FOLLOWS = 2;
+const followKey = (id: number) => `ia-followed-${id}`;
+function followed(id: number): number {
+  try {
+    return Number(sessionStorage.getItem(followKey(id)) ?? 0);
+  } catch {
+    return MAX_FOLLOWS;
+  }
+}
+function markFollowed(id: number): void {
+  try {
+    sessionStorage.setItem(followKey(id), String(followed(id) + 1));
+  } catch {
+    /* storage unavailable: then followed() says no more */
+  }
+}
+
 async function main(): Promise<void> {
   const job = await send<ContentReadyReply>({ type: "content:ready", url: location.href });
   if (!job) return;
@@ -56,13 +76,30 @@ async function main(): Promise<void> {
         "Sign in or create your account (use your password manager). Filling starts after that.",
     });
   }
-  // Single-page apps render the form after load; sign-in can take a few minutes.
-  const root = await waitFor(() => adapter.formRoot(document), adapter.formWaitMs ?? 15_000, 300);
+  // Look for the form briefly. If this is the job description and the form is one page further,
+  // behind an "Apply" link, go to that page (a page load, never a click); it's filled there.
+  const app = job.application;
+  let root = await waitFor(() => adapter.formRoot(document), FIRST_LOOK_MS, 300);
+  if (!root) {
+    const next =
+      followed(app.id) < MAX_FOLLOWS ? findApplyLink(document, new URL(location.href)) : null;
+    if (next) {
+      markFollowed(app.id);
+      await send({ type: "content:error", message: "Going to the application form…" });
+      location.assign(next);
+      return;
+    }
+    // Single-page apps render the form after load; sign-in can take a few minutes.
+    root = await waitFor(
+      () => adapter.formRoot(document),
+      Math.max(0, (adapter.formWaitMs ?? 15_000) - FIRST_LOOK_MS),
+      300,
+    );
+  }
   if (!root) {
     await send({ type: "content:error", message: "No application form found on this page." });
     return;
   }
-  const app = job.application;
   const files = Object.fromEntries(
     Object.entries(app.files).map(([kind, f]) => [kind, base64ToFile(f!.base64, f!.name)]),
   );

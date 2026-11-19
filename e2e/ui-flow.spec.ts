@@ -3,7 +3,7 @@
 // the application in a new tab and the extension fills it. The test stops there: nothing is
 // submitted. Fictional data; the job board is served from fixtures/forms by a Playwright route.
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,12 +36,15 @@ test.afterAll(async () => {
 test("find → prepare → approve → Open & fill, all from the review UI", async () => {
   test.skip(!existsSync(join(UI, "index.html")), "build the UI first (npm run build)");
   test.setTimeout(120_000);
-  execFileSync("npx", ["tsx", "apps/extension/scripts/build.ts"], { cwd: ROOT, stdio: "pipe" });
   const extensionDir = mkdtempSync(join(tmpdir(), "ia-ext-"));
   const outDir = mkdtempSync(join(tmpdir(), "ia-ui-out-"));
   const userData = mkdtempSync(join(tmpdir(), "ia-chrome-"));
   temp.push(extensionDir, outDir, userData);
-  cpSync(join(ROOT, "apps/extension/dist"), extensionDir, { recursive: true });
+  execFileSync("npx", ["tsx", "apps/extension/scripts/build.ts"], {
+    cwd: ROOT,
+    stdio: "pipe",
+    env: { ...process.env, IA_EXT_OUT: extensionDir },
+  });
 
   const profile = testProfile();
   const store = new Store(":memory:");
@@ -54,6 +57,7 @@ test("find → prepare → approve → Open & fill, all from the review UI", asy
     questions: QUESTIONS,
   });
   store.savePostings([posting]);
+  store.setMeta("autorun", "off"); // this test is about Open & fill by hand (auto-run: auto-run.spec)
   store.saveScore(
     posting.id,
     true,

@@ -3,6 +3,7 @@ import { generic } from "./generic.ts";
 import { icims, smartrecruiters, workday } from "./platforms2.ts";
 import type { Adapter } from "./types.ts";
 
+export * from "./apply-link.ts";
 export * from "./dom.ts";
 export * from "./engine.ts";
 export * from "./generic.ts";

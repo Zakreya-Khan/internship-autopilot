@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { makeApi } from "../src/api.ts";
 import type { NextResponse, SessionApi, SessionApplication, SessionState } from "../src/session.ts";
 import { isSupportedUrl, SessionController } from "../src/session.ts";
+import { bridgeStatus, isBridgeRequest } from "../src/bridge.ts";
 
 const app = (id: number): SessionApplication => ({
   id,
@@ -142,6 +143,38 @@ describe("Open & fill from the review UI", () => {
     expect(await c.jobForPage(11, "https://job-boards.greenhouse.io/exampleco/jobs/5")).toBeNull();
     expect(api.launch).not.toHaveBeenCalled();
     expect(c.get()).toMatchObject({ phase: "filling", application: { id: 1 } });
+  });
+});
+
+describe("auto-run while the review UI is open", () => {
+  it("starts when nothing is running, and never restarts or interrupts a run", async () => {
+    const { c, api } = harness([1, 2]);
+    expect(await c.autoStart()).toBe(true);
+    expect(c.get()).toMatchObject({ phase: "filling", application: { id: 1 } });
+    expect(await c.autoStart()).toBe(false);
+    await c.onFilled(7, [], null);
+    expect(await c.autoStart()).toBe(false); // waiting for your Submit
+    expect(api.next).toHaveBeenCalledTimes(1);
+    await c.end();
+    expect(await c.autoStart()).toBe(true);
+  });
+
+  it("tells the page only the run's progress, never field values", async () => {
+    const { c } = harness([1]);
+    await c.start();
+    const s = bridgeStatus(c.get(), "token");
+    expect(s).toMatchObject({
+      ready: true,
+      phase: "filling",
+      company: "Example Co",
+      title: "Intern 1",
+    });
+    expect(JSON.stringify(s)).not.toContain("Alex");
+    expect(bridgeStatus(c.get(), "")).toMatchObject({ ready: false });
+    expect(isBridgeRequest({ source: "ia-ui", type: "autorun" })).toBe(true);
+    expect(isBridgeRequest({ source: "ia-ui", type: "session:end" })).toBe(false);
+    expect(isBridgeRequest({ source: "other", type: "autorun" })).toBe(false);
+    expect(isBridgeRequest(null)).toBe(false);
   });
 });
 

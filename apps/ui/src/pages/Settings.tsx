@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ConnectionTest, Provider, ProviderSettings } from "../api.ts";
-import { api, extensionToken } from "../api.ts";
+import { api, changed, extensionToken } from "../api.ts";
 
 const PROVIDERS: Provider[] = ["api", "cli"];
 
@@ -191,10 +191,19 @@ export function Settings() {
   );
 }
 
-/** What the browser extension's options page needs, with a copy button. */
+/** What the browser extension's options page needs, with a copy button, and auto-fill. */
 function ExtensionSetup() {
   const [shown, setShown] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [auto, setAuto] = useState<boolean | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .summary()
+      .then((x) => setAuto(x.autorun))
+      .catch(() => setAuto(null));
+  }, []);
+  const connected = document.documentElement.dataset.iaExtension === "1";
   const token = extensionToken();
   return (
     <section className="panel">
@@ -223,6 +232,35 @@ function ExtensionSetup() {
           </button>
         </span>
       </p>
+      <p className={connected ? "ok" : "warn"}>
+        {connected
+          ? "The extension is installed and set up for this server."
+          : "The extension isn't connected to this page yet: load it, paste the server and token, then reload this page."}
+      </p>
+      <label>
+        <input
+          type="checkbox"
+          checked={auto ?? false}
+          disabled={auto === null}
+          onChange={(e) => {
+            const on = e.target.checked;
+            void api.setAutorun(on).then(
+              (r) => {
+                setAuto(r.on);
+                changed();
+              },
+              (err: Error) => setError(err.message),
+            );
+          }}
+        />{" "}
+        Open and fill approved applications automatically while this page is open
+      </label>
+      <p className="muted small">
+        One at a time, in deadline order: each opens in a tab, goes to the form and is filled; the
+        next opens after you press Submit (or Skip in the extension's side panel). Nothing is ever
+        submitted for you. Close this page, or turn this off, and no new ones open.
+      </p>
+      {error ? <p role="alert">{error}</p> : null}
     </section>
   );
 }

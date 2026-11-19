@@ -81,8 +81,9 @@ export function Home() {
         <>
           <h2>Fill and submit {plural(s.approved, "approved application")}</h2>
           <p className="muted">
-            Open &amp; fill opens the application in a new tab and the extension fills it. You press
-            Submit.
+            {s.autorun
+              ? "While this page is open, each one opens and fills by itself, one at a time; the next opens after you submit. You press Submit. Or Open & fill one now."
+              : "Open & fill opens the application in a new tab and the extension fills it. You press Submit. (Turn on auto-fill in Settings to have them open by themselves.)"}
           </p>
           <ul className="plain stack">
             {approved.slice(0, 5).map((a) => (

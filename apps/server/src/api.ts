@@ -555,8 +555,17 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (req.body?.undo) return { restored: unskipPostings(store, ids) };
     return skipPostings(store, ids);
   });
+  // Open and fill approved applications automatically while the review UI is open (default on).
+  const autorun = () => store.getMeta("autorun") !== "off";
+  app.get("/api/settings/autorun", async () => ({ on: autorun() }));
+  app.put<{ Body: { on?: boolean } }>("/api/settings/autorun", async (req) => {
+    if (typeof req.body?.on !== "boolean") throw new HttpProblem(400, "on must be true or false");
+    store.setMeta("autorun", req.body.on ? "on" : "off");
+    return { on: autorun() };
+  });
   app.get("/api/summary", async () => ({
     ...homeSummary(store),
+    autorun: autorun(),
     questions: questionsInbox(store).length,
     jobs: deps.jobs?.running() ?? [],
   }));

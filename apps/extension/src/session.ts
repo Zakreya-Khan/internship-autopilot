@@ -146,6 +146,21 @@ export class SessionController {
     this.deps.onChange(this.state);
   }
 
+  /** Is a run going (opening, filling, or waiting for your Submit)? */
+  isRunning(): boolean {
+    return !["idle", "done", "error"].includes(this.state.phase);
+  }
+
+  /**
+   * The review UI is open and something is approved: start the run unless one is going. A run
+   * you're in the middle of is never restarted or interrupted.
+   */
+  async autoStart(): Promise<boolean> {
+    if (this.isRunning()) return false;
+    await this.start();
+    return true;
+  }
+
   async start(): Promise<void> {
     this.set({ ...IDLE, phase: "loading" });
     await this.advance();

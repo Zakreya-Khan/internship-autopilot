@@ -8,6 +8,8 @@ export type ToBackground =
   | { type: "session:confirm" }
   | { type: "session:end" }
   | { type: "session:get" }
+  /** From the review UI while it's open: start the run if none is going. */
+  | { type: "session:auto" }
   | { type: "content:ready"; url: string }
   | { type: "content:filled"; results: FieldResult[]; snapshotHtml: string | null }
   | { type: "content:confirmed"; url: string }

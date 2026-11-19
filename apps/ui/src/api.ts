@@ -288,6 +288,8 @@ export interface Summary {
   dueSoon: number;
   questions: number;
   jobs: JobView[];
+  /** Open and fill approved applications automatically while the review UI is open. */
+  autorun: boolean;
 }
 
 export type ConnectionTest = { ok: true; model: string; ms: number } | { ok: false; error: string };
@@ -406,6 +408,7 @@ export const api = {
   forgetApiKey: () => call<ProviderSettings>("DELETE", "/api/settings/api-key"),
   fileUrl: (id: number, kind: "resume" | "cover_letter") => `/api/applications/${id}/files/${kind}`,
   summary: () => call<Summary>("GET", "/api/summary"),
+  setAutorun: (on: boolean) => call<{ on: boolean }>("PUT", "/api/settings/autorun", { on }),
   postings: (q: PostingQuery) => call<PostingSearch>("GET", `/api/postings${query(q)}`),
   skipPostings: (ids: string[], undo = false) =>
     call<{ skipped?: number; left?: number; restored?: number }>("POST", "/api/postings/skip", {

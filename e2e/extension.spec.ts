@@ -5,7 +5,7 @@
 // Plus one approved posting that closed after approval, which the session must skip.
 // Fixtures are fictional; job-board hosts are served from fixtures/forms by Playwright routes.
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -165,10 +165,13 @@ const temp: string[] = [];
 test.beforeAll(() => {
   // Build the real extension, then load a copy whose manifest also pre-grants the generic test
   // host. In real use Chrome asks you to allow an unknown site; a test can't answer that prompt.
-  execFileSync("npx", ["tsx", "apps/extension/scripts/build.ts"], { cwd: ROOT, stdio: "pipe" });
   extensionDir = mkdtempSync(join(tmpdir(), "ia-ext-"));
   temp.push(extensionDir);
-  cpSync(join(ROOT, "apps/extension/dist"), extensionDir, { recursive: true });
+  execFileSync("npx", ["tsx", "apps/extension/scripts/build.ts"], {
+    cwd: ROOT,
+    stdio: "pipe",
+    env: { ...process.env, IA_EXT_OUT: extensionDir },
+  });
   const manifestPath = join(extensionDir, "manifest.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
     host_permissions: string[];
@@ -309,9 +312,9 @@ test("the built extension runs the whole session across every platform", async (
     const id = ids[c.name]!;
     const tab = await pageFor(c.posting.applyUrl!);
     if (c.name === "generic") {
-      // An unknown site: the session waits for you to allow it ("Fill this page").
-      await expect(panel.locator("#generic")).toBeVisible();
-      await panel.evaluate(() => chrome.runtime.sendMessage({ type: "session:inject" }));
+      // An unknown site you've already allowed (pre-granted here, since a test can't answer
+      // Chrome's prompt): the extension fills it by itself, no "Fill this page" needed.
+      await expect(panel.locator("#generic")).toBeHidden();
     }
     await waitForStatus(api, id, "filled");
     for (const [sel, value] of Object.entries(c.expectFilled))
